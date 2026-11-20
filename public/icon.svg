@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <clipPath id="paper">
+      <rect width="1024" height="1024" rx="192"/>
+    </clipPath>
+  </defs>
+
+  <!-- Бумага -->
+  <rect width="1024" height="1024" rx="192" fill="#D6BFA3"/>
+
+  <g clip-path="url(#paper)">
+    <!-- Красное поле -->
+    <rect x="192" width="64" height="1024" fill="#C03A2B"/>
+  </g>
+
+  <!-- «З» в стиле Georgia: засечки, контрастный штрих -->
+  <text x="620.8" y="812.8" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif"
+        font-size="736" font-weight="700" fill="#2B2118">З</text>
+</svg>
