@@ -8,21 +8,17 @@ import { useAppStore } from '@/lib/klaster/store';
 import { THEME_META } from '@/lib/klaster/theme';
 import type { ThemeId } from '@/lib/klaster/theme';
 
-const SPINNERS: Record<ThemeId, { interval: number; frames: string[] }> = {
-  vanilla: cliSpinners.line2,
-  'vanilla-dark': cliSpinners.line2,
-  'vanilla-black': cliSpinners.toggle3,
+const SPINNERS: Partial<Record<ThemeId, { interval: number; frames: string[] }>> = {
   academic: cliSpinners.simpleDots,
-  'academic-dark': cliSpinners.simpleDots,
+  'academic-light': cliSpinners.simpleDots,
   kinopio: cliSpinners.simpleDots,
-
-  stylish: cliSpinners.dots2,
-  'stylish-dark': cliSpinners.dots2,
+  shaomi: cliSpinners.dots12,
+  'shaomi-dark': cliSpinners.dots12,
+  miuay: cliSpinners.bouncingBar,
+  'miuay-dark': cliSpinners.bouncingBar,
   // «Простенькая» — без анимации: один статичный кадр.
   simple: { interval: 100000, frames: ['•'] },
   'simple-dark': { interval: 100000, frames: ['•'] },
-  ordinary: { interval: 100000, frames: ['•'] },
-  'ordinary-dark': { interval: 100000, frames: ['•'] },
 };
 
 const LEAVE_MS = 220;
@@ -70,7 +66,7 @@ export function ThemeSplash() {
         <div className="splash-spinner">{sp.frames[frame % sp.frames.length]}</div>
         <div className="splash-title">
           Загрузка…
-          {theme === 'kinopio' || theme === 'stylish' || theme === 'stylish-dark' ? <span className="splash-dot" /> : null}
+          {theme === 'kinopio' ? <span className="splash-dot" /> : null}
         </div>
         <div className="splash-hint">Перезагружаю визуальную часть · тема «{meta?.name ?? ''}»</div>
         <div className="splash-bar" />

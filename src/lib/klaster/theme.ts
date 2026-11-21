@@ -1,32 +1,36 @@
 import type { NoteColor } from './types';
 
 export type ThemeId =
-  | 'vanilla'
-  | 'vanilla-dark'
-  | 'vanilla-black'
   | 'academic'
-  | 'academic-dark'
+  | 'academic-light'
   | 'kinopio'
-  | 'stylish'
-  | 'stylish-dark'
+  | 'kinopio-dark'
+  | 'apple'
+  | 'apple-night'
+  | 'lin'
+  | 'lin-dark'
   | 'simple'
   | 'simple-dark'
-  | 'ordinary'
-  | 'ordinary-dark';
+  | 'shaomi'
+  | 'shaomi-dark'
+  | 'miuay'
+  | 'miuay-dark';
 
 export const THEME_IDS: ThemeId[] = [
-  'vanilla',
-  'vanilla-dark',
-  'vanilla-black',
   'academic',
-  'academic-dark',
+  'academic-light',
   'kinopio',
-  'stylish',
-  'stylish-dark',
+  'kinopio-dark',
+  'apple',
+  'apple-night',
+  'lin',
+  'lin-dark',
   'simple',
   'simple-dark',
-  'ordinary',
-  'ordinary-dark',
+  'shaomi',
+  'shaomi-dark',
+  'miuay',
+  'miuay-dark',
 ];
 
 export function isThemeId(v: unknown): v is ThemeId {
@@ -39,19 +43,20 @@ export interface ThemeMeta {
 }
 
 export const THEME_META: Record<ThemeId, ThemeMeta> = {
-  vanilla: { name: 'Ванильная', hint: 'Светлый лист в жёлтую клетку и мягкие тени. Рабочий день без драмы.' },
-  'vanilla-dark': { name: 'Ванильная тёмная', hint: 'Графитовая клетка, синий акцент и ночной режим без шифра.' },
-  'vanilla-black': { name: 'Абсолютно чёрная', hint: 'Чёрный холст с бирюзовыми волнами. Пиксели отдыхают.' },
-  academic: { name: 'Академическая', hint: 'Мятный фон в синюю пиксельную сетку: мысли сами выстраиваются.' },
-  'academic-dark': { name: 'Академическая тёмная', hint: 'Тёмно-зелёный стол в белую пиксельную сетку. Линейка прилагается мысленно.' },
-  kinopio: { name: 'Тёплая', hint: 'Кремовый холст с тёплыми штампами. Порядок — по настроению.' },
-
-  stylish: { name: 'Стильная', hint: 'Лавандовый холст с алыми крестиками и выразительным акцентом.' },
-  'stylish-dark': { name: 'Стильная тёмная', hint: 'Полночная синева, алые крестики и слоистые тени.' },
-  simple: { name: 'Простенькая', hint: 'Светлый холст в тонкую полоску и парящие карточки. Ничего лишнего.' },
-  'simple-dark': { name: 'Простенькая тёмная', hint: 'Тёмный холст в тонкую полоску и спокойные карточки. Процессор выдыхает.' },
-  ordinary: { name: 'Обычная', hint: 'Бумажный тон и коричневые треугольники. Ничего не отвлекает.' },
-  'ordinary-dark': { name: 'Обычная тёмная', hint: 'Бордо и розовые треугольники. Спокойно, но не скучно.' },
+  'academic-light': { name: 'Академическая днём', hint: 'Дневной свет и стальной порядок: серый холст, белоснежные карточки. Идеально для ясной головы!' },
+  academic: { name: 'Академическая ночью', hint: 'Глубокий уголь — карточки парят, как звёзды над бездной. Строго, величественно, как старая библиотека!' },
+  lin: { name: 'Линь днём', hint: 'Плоско, остро, минималистично — скорость и порядок во всём. Ноль лишнего, максимум мыслей!' },
+  'lin-dark': { name: 'Линь ночью', hint: 'Терминал на полночь: чёрный фон, синий акцент, магия командной строки. Для настоящих ниндзя клавиатуры!' },
+  shaomi: { name: 'Шаоми днём', hint: 'Белый пластик и фирменный оранжевый: чистые линии, крупные скругления, живой и дружелюбный интерфейс!' },
+  'shaomi-dark': { name: 'Шаоми ночью', hint: 'Тёплый графит с оранжевым огоньком: ночной режим, в котором хочется копать настройки до утра!' },
+  apple: { name: 'Яблоневая днём', hint: 'Стекло на рассвете: матовые карточки, пастельные обои и свежий синий акцент. Лёгкость, как первый глоток утра!' },
+  'apple-night': { name: 'Яблоневая ночью', hint: 'Чёрное стекло: тёмные матовые карточки и мягкое свечение обоев. Ночная витрина, от которой не оторваться!' },
+  miuay: { name: 'Миюай днём', hint: 'Пастельные градиенты и сочный синий акцент: воздушные карточки и анимации, как у свежего смартфона!' },
+  'miuay-dark': { name: 'Миюай ночью', hint: 'Глубокий ионный синий: светящиеся акценты, плавные градиенты и карточки, летящие в темноте!' },
+  simple: { name: 'Персональная днём', hint: 'Горошинки на свету — база, которую ты пересобираешь под себя в «Сборке».' },
+  'simple-dark': { name: 'Персональная ночью', hint: 'Горошинки в темноте — база, которую ты пересобираешь под себя в «Сборке».' },
+  kinopio: { name: 'Кинопио', hint: 'Радужные липучки и резиновые карточки на белом в листиках. Потяни карточку — она пружинисто потянется!' },
+  'kinopio-dark': { name: 'Кинопио ночь', hint: 'Вечерний лес: тёмно-коричневый холст, тёплые карточки и светлячок-фонарик в листве. Магия сумерек!' },
 };
 
 export const THEME_BOOT_MS = 900;
@@ -66,70 +71,31 @@ export interface NoteColorSpec {
 export type NotePalette = Record<NoteColor, NoteColorSpec>;
 
 export const NOTE_PALETTES: Record<ThemeId, NotePalette> = {
-  vanilla: {
-    notebook: { bg: '#D6BFA3', border: '#8F7358' },
-    peri: { bg: '#C3C5EC', border: '#6667AB' },
-    magenta: { bg: '#EFAFC1', border: '#BB2649' },
-    peach: { bg: '#FFDCC7', border: '#E8996B' },
-    mocha: { bg: '#DCC7B8', border: '#A47864' },
-    'classic-blue': { bg: '#B3CBEA', border: '#0F4C81' },
-    coral: { bg: '#FFB8AE', border: '#FF6F61' },
-    yellow: { bg: '#F9E880', border: '#D9BE1E' },
-    gray: { bg: '#DDDFE0', border: '#939597' },
-    greenery: { bg: '#BCD493', border: '#88B04B' },
-    marsala: { bg: '#D8ABA9', border: '#964F4C' },
-  },
-  'vanilla-dark': {
-    notebook: { bg: '#D6BFA3', border: '#8F7358' },
-    peri: { bg: '#3E4272', border: '#8284C0' },
-    magenta: { bg: '#6B2B40', border: '#C4607F' },
-    peach: { bg: '#6B4329', border: '#D08B57' },
-    mocha: { bg: '#543A2B', border: '#A47864' },
-    'classic-blue': { bg: '#1F3A5C', border: '#5B8BC4' },
-    coral: { bg: '#6B3630', border: '#F08A7F' },
-    yellow: { bg: '#5C5118', border: '#D3BC45' },
-    gray: { bg: '#3A4046', border: '#7C848C' },
-    greenery: { bg: '#3C5222', border: '#88B04B' },
-    marsala: { bg: '#542F2D', border: '#B57773' },
-  },
-  'vanilla-black': {
-    notebook: { bg: '#D6BFA3', border: '#8F7358' },
-    peri: { bg: '#10101F', border: '#5A5C96' },
-    magenta: { bg: '#1C0A10', border: '#8F3A56' },
-    peach: { bg: '#1C110A', border: '#8F5533' },
-    mocha: { bg: '#160E08', border: '#7C5643' },
-    'classic-blue': { bg: '#0A1520', border: '#426E9E' },
-    coral: { bg: '#1C0D0B', border: '#A65B50' },
-    yellow: { bg: '#161205', border: '#8F7E2E' },
-    gray: { bg: '#141618', border: '#4E565E' },
-    greenery: { bg: '#0E1508', border: '#5A7631' },
-    marsala: { bg: '#180B0A', border: '#7E4A47' },
-  },
   academic: {
-    notebook: { bg: '#D6BFA3', border: '#8F7358' },
-    peri: { bg: '#E1E1F5', border: '#6667AB' },
-    magenta: { bg: '#F7D5DE', border: '#BB2649' },
-    peach: { bg: '#FFE8D9', border: '#E8996B' },
-    mocha: { bg: '#EDDFD5', border: '#A47864' },
-    'classic-blue': { bg: '#D5E2F2', border: '#0F4C81' },
-    coral: { bg: '#FFD9D3', border: '#FF6F61' },
-    yellow: { bg: '#FAF3CF', border: '#D6B656' },
-    gray: { bg: '#F0F1F1', border: '#939597' },
-    greenery: { bg: '#DFEBCB', border: '#88B04B' },
-    marsala: { bg: '#EDD5D4', border: '#964F4C' },
+    notebook: { bg: '#D6BFA3', border: '#8F7358', fg: '#2B2A26' },
+    peri: { bg: '#E1E1F5', border: '#6667AB', fg: '#2E2E45' },
+    magenta: { bg: '#F7D5DE', border: '#BB2649', fg: '#4A1F2A' },
+    peach: { bg: '#FFE8D9', border: '#E8996B', fg: '#4A2C1B' },
+    mocha: { bg: '#EDDFD5', border: '#A47864', fg: '#3E2E24' },
+    'classic-blue': { bg: '#D5E2F2', border: '#0F4C81', fg: '#1B2E45' },
+    coral: { bg: '#FFD9D3', border: '#FF6F61', fg: '#4A2520' },
+    yellow: { bg: '#FAF3CF', border: '#D6B656', fg: '#3B3620' },
+    gray: { bg: '#F0F1F1', border: '#939597', fg: '#33373B' },
+    greenery: { bg: '#DFEBCB', border: '#88B04B', fg: '#2C3A1C' },
+    marsala: { bg: '#EDD5D4', border: '#964F4C', fg: '#422624' },
   },
-  'academic-dark': {
-    notebook: { bg: '#D6BFA3', border: '#8F7358' },
-    peri: { bg: '#34375C', border: '#8284C0' },
-    magenta: { bg: '#55222F', border: '#C4607F' },
-    peach: { bg: '#523018', border: '#D08B57' },
-    mocha: { bg: '#3F2C20', border: '#A47864' },
-    'classic-blue': { bg: '#1A3050', border: '#5B8BC4' },
-    coral: { bg: '#52241E', border: '#F08A7F' },
-    yellow: { bg: '#4A3F1E', border: '#B39B4A' },
-    gray: { bg: '#333537', border: '#7C848C' },
-    greenery: { bg: '#2C3E18', border: '#88B04B' },
-    marsala: { bg: '#432422', border: '#B57773' },
+  'academic-light': {
+    notebook: { bg: '#D6BFA3', border: '#8F7358', fg: '#2B2A26' },
+    peri: { bg: '#E1E1F5', border: '#6667AB', fg: '#2E2E45' },
+    magenta: { bg: '#F7D5DE', border: '#BB2649', fg: '#4A1F2A' },
+    peach: { bg: '#FFE8D9', border: '#E8996B', fg: '#4A2C1B' },
+    mocha: { bg: '#EDDFD5', border: '#A47864', fg: '#3E2E24' },
+    'classic-blue': { bg: '#D5E2F2', border: '#0F4C81', fg: '#1B2E45' },
+    coral: { bg: '#FFD9D3', border: '#FF6F61', fg: '#4A2520' },
+    yellow: { bg: '#FAF3CF', border: '#D6B656', fg: '#3B3620' },
+    gray: { bg: '#F0F1F1', border: '#939597', fg: '#33373B' },
+    greenery: { bg: '#DFEBCB', border: '#88B04B', fg: '#2C3A1C' },
+    marsala: { bg: '#EDD5D4', border: '#964F4C', fg: '#422624' },
   },
   kinopio: {
     notebook: { bg: '#D6BFA3', border: '#8F7358' },
@@ -144,31 +110,70 @@ export const NOTE_PALETTES: Record<ThemeId, NotePalette> = {
     greenery: { bg: '#D8EF7C', border: 'rgba(0,0,0,0.30)' },
     marsala: { bg: '#E9C2C0', border: 'rgba(0,0,0,0.30)' },
   },
-  stylish: {
-    notebook: { bg: '#D6BFA3', border: '#8F7358' },
-    peri: { bg: '#C3C5EC', border: 'transparent' },
-    magenta: { bg: '#EFAFC1', border: 'transparent' },
-    peach: { bg: '#FFDCC7', border: 'transparent' },
-    mocha: { bg: '#DCC7B8', border: 'transparent' },
-    'classic-blue': { bg: '#B3CBEA', border: 'transparent' },
-    coral: { bg: '#FFB8AE', border: 'transparent' },
-    yellow: { bg: '#F9E880', border: 'transparent' },
-    gray: { bg: '#DDDFE0', border: 'transparent' },
-    greenery: { bg: '#BCD493', border: 'transparent' },
-    marsala: { bg: '#D8ABA9', border: 'transparent' },
+  'kinopio-dark': {
+    notebook: { bg: '#3d3220', border: '#8a744c', fg: '#e8dcc0' },
+    peri: { bg: '#2c2c4a', border: '#8284c0', fg: '#d5d5f0' },
+    magenta: { bg: '#4a2430', border: '#c4607f', fg: '#f0cdd8' },
+    peach: { bg: '#3d2817', border: '#d08b57', fg: '#f0d9c4' },
+    mocha: { bg: '#2f241a', border: '#a47864', fg: '#e0d4c8' },
+    'classic-blue': { bg: '#1a2a3d', border: '#5b8bc4', fg: '#cfe0f0' },
+    coral: { bg: '#3d1f1c', border: '#f08a7f', fg: '#f0cfc9' },
+    yellow: { bg: '#3d3317', border: '#b39b4a', fg: '#f0e6b8' },
+    gray: { bg: '#2e2e2e', border: '#7c848c', fg: '#dcdcdc' },
+    greenery: { bg: '#223018', border: '#88b04b', fg: '#cfe6c0' },
+    marsala: { bg: '#3a2020', border: '#b57773', fg: '#e8cbc8' },
   },
-  'stylish-dark': {
-    notebook: { bg: '#D6BFA3', border: '#8F7358' },
-    peri: { bg: '#8B8DC4', border: 'transparent' },
-    magenta: { bg: '#C9738B', border: 'transparent' },
-    peach: { bg: '#D08A5C', border: 'transparent' },
-    mocha: { bg: '#A47864', border: 'transparent' },
-    'classic-blue': { bg: '#5F88B8', border: 'transparent' },
-    coral: { bg: '#D96F60', border: 'transparent' },
-    yellow: { bg: '#E9BC3F', border: 'transparent' },
-    gray: { bg: '#5F6672', border: 'transparent' },
-    greenery: { bg: '#6CC245', border: 'transparent' },
-    marsala: { bg: '#B06B67', border: 'transparent' },
+  apple: {
+    notebook: { bg: '#e3d9c8', border: '#a9967b', fg: '#3a3228' },
+    peri: { bg: '#dceafc', border: '#0a84ff', fg: '#1d3a5c' },
+    magenta: { bg: '#fcdfec', border: '#ff2d55', fg: '#4a1f30' },
+    peach: { bg: '#ffe4d1', border: '#ff9500', fg: '#4a2c12' },
+    mocha: { bg: '#e8e0d5', border: '#a2845e', fg: '#3a3228' },
+    'classic-blue': { bg: '#dceafc', border: '#0a84ff', fg: '#1d3a5c' },
+    coral: { bg: '#fdd8d3', border: '#ff3b30', fg: '#4a1d19' },
+    yellow: { bg: '#fdf2c5', border: '#ccbe00', fg: '#4a431a' },
+    gray: { bg: '#e9e9eb', border: '#8e8e93', fg: '#2c2c2e' },
+    greenery: { bg: '#d9f2e3', border: '#34c759', fg: '#1d3d26' },
+    marsala: { bg: '#ecd5da', border: '#af52de', fg: '#3f2447' },
+  },
+  'apple-night': {
+    notebook: { bg: '#3d372b', border: '#a9967b', fg: '#ece4d3' },
+    peri: { bg: '#274257', border: '#64a8ff', fg: '#d6eafc' },
+    magenta: { bg: '#4a2737', border: '#ff6489', fg: '#fcd5e4' },
+    peach: { bg: '#4a2d1c', border: '#ffab4a', fg: '#ffe6cd' },
+    mocha: { bg: '#3d3428', border: '#a2845e', fg: '#e3dbc9' },
+    'classic-blue': { bg: '#274257', border: '#64a8ff', fg: '#d6eafc' },
+    coral: { bg: '#4a2724', border: '#ff6961', fg: '#fcd6d3' },
+    yellow: { bg: '#4a401f', border: '#d9c94a', fg: '#f5eeb8' },
+    gray: { bg: '#2c2c2e', border: '#98989d', fg: '#e9e9eb' },
+    greenery: { bg: '#274234', border: '#5ad38a', fg: '#d6f2e1' },
+    marsala: { bg: '#372c52', border: '#bf85ff', fg: '#e6d9ff' },
+  },
+  lin: {
+    notebook: { bg: '#d9d3c7', border: '#8a8375', fg: '#2a2a2a' },
+    peri: { bg: '#d3dbe2', border: '#5b7d9a', fg: '#242c34' },
+    magenta: { bg: '#e0d0da', border: '#9a5b7d', fg: '#33222b' },
+    peach: { bg: '#e6d6c8', border: '#a0714a', fg: '#33261a' },
+    mocha: { bg: '#ddd3c8', border: '#8a6d52', fg: '#2e261d' },
+    'classic-blue': { bg: '#d2dfe9', border: '#3a6ea5', fg: '#1e2e3d' },
+    coral: { bg: '#e2cfc9', border: '#a5503f', fg: '#331f1c' },
+    yellow: { bg: '#e6dfc0', border: '#8a7d3a', fg: '#2e2a18' },
+    gray: { bg: '#dcdedf', border: '#6a6d70', fg: '#222528' },
+    greenery: { bg: '#cfdbbf', border: '#5a7a3a', fg: '#1f2c16' },
+    marsala: { bg: '#d9c6c4', border: '#8a5550', fg: '#2f2020' },
+  },
+  'lin-dark': {
+    notebook: { bg: '#332f28', border: '#8a8375', fg: '#d8d2c5' },
+    peri: { bg: '#26303a', border: '#5b7d9a', fg: '#c5d5e2' },
+    magenta: { bg: '#3a2830', border: '#9a5b7d', fg: '#e0c5d5' },
+    peach: { bg: '#33281c', border: '#a0714a', fg: '#e6d2b8' },
+    mocha: { bg: '#2e2820', border: '#8a6d52', fg: '#d8cfc2' },
+    'classic-blue': { bg: '#1f2e3d', border: '#3a6ea5', fg: '#c5d8e8' },
+    coral: { bg: '#33211e', border: '#a5503f', fg: '#e2c4bd' },
+    yellow: { bg: '#33301c', border: '#8a7d3a', fg: '#e3dcc0' },
+    gray: { bg: '#26282a', border: '#6a6d70', fg: '#d2d4d6' },
+    greenery: { bg: '#232c1c', border: '#5a7a3a', fg: '#cfdbc0' },
+    marsala: { bg: '#2e2222', border: '#8a5550', fg: '#dfc0bd' },
   },
   simple: {
     notebook: { bg: '#D6BFA3', border: '#8F7358' },
@@ -196,36 +201,62 @@ export const NOTE_PALETTES: Record<ThemeId, NotePalette> = {
     greenery: { bg: '#3C5222', border: '#88B04B' },
     marsala: { bg: '#542F2D', border: '#B57773' },
   },
-  ordinary: {
-    notebook: { bg: '#D6BFA3', border: '#8F7358' },
-    peri: { bg: '#C3C5EC', border: '#6667AB' },
-    magenta: { bg: '#EFAFC1', border: '#BB2649' },
-    peach: { bg: '#FFDCC7', border: '#E8996B' },
-    mocha: { bg: '#DCC7B8', border: '#A47864' },
-    'classic-blue': { bg: '#B3CBEA', border: '#0F4C81' },
-    coral: { bg: '#FFB8AE', border: '#FF6F61' },
-    yellow: { bg: '#F9E880', border: '#D9BE1E' },
-    gray: { bg: '#DDDFE0', border: '#939597' },
-    greenery: { bg: '#BCD493', border: '#88B04B' },
-    marsala: { bg: '#D8ABA9', border: '#964F4C' },
+  shaomi: {
+    notebook: { bg: '#f2e8d5', border: '#c9b382', fg: '#4a3a1e' },
+    peri: { bg: '#e8f1fd', border: '#3b82c4', fg: '#1e3a52' },
+    magenta: { bg: '#fde3ec', border: '#d9436f', fg: '#5a1f30' },
+    peach: { bg: '#ffe9d9', border: '#ff9424', fg: '#5a3210' },
+    mocha: { bg: '#efe4d8', border: '#b98a5e', fg: '#402c1c' },
+    'classic-blue': { bg: '#e3edfb', border: '#2f6fb8', fg: '#1c3552' },
+    coral: { bg: '#ffe1da', border: '#ff6900', fg: '#5a2508' },
+    yellow: { bg: '#fff4cf', border: '#e2b60a', fg: '#4a3c08' },
+    gray: { bg: '#f0f1f2', border: '#9aa0a6', fg: '#333639' },
+    greenery: { bg: '#e3f2d9', border: '#5ab840', fg: '#1f3d14' },
+    marsala: { bg: '#f5e2ee', border: '#b850a0', fg: '#4a1e42' },
   },
-  'ordinary-dark': {
-    notebook: { bg: '#D6BFA3', border: '#8F7358' },
-    peri: { bg: '#3E4272', border: '#8284C0' },
-    magenta: { bg: '#6B2B40', border: '#C4607F' },
-    peach: { bg: '#6B4329', border: '#D08B57' },
-    mocha: { bg: '#543A2B', border: '#A47864' },
-    'classic-blue': { bg: '#1F3A5C', border: '#5B8BC4' },
-    coral: { bg: '#6B3630', border: '#F08A7F' },
-    yellow: { bg: '#5C5118', border: '#D3BC45' },
-    gray: { bg: '#3A4046', border: '#7C848C' },
-    greenery: { bg: '#3C5222', border: '#88B04B' },
-    marsala: { bg: '#542F2D', border: '#B57773' },
+  'shaomi-dark': {
+    notebook: { bg: '#3d3524', border: '#c9a95e', fg: '#f2e8d0' },
+    peri: { bg: '#26303d', border: '#5a9ad0', fg: '#d5e6f5' },
+    magenta: { bg: '#3d2230', border: '#e05a85', fg: '#f5cede' },
+    peach: { bg: '#3d2a18', border: '#ff9424', fg: '#f5ddc2' },
+    mocha: { bg: '#33281e', border: '#b98a5e', fg: '#e8dccd' },
+    'classic-blue': { bg: '#1e2c3d', border: '#4a8ad0', fg: '#cde0f5' },
+    coral: { bg: '#3d2517', border: '#ff6900', fg: '#f5d5bc' },
+    yellow: { bg: '#3d3315', border: '#e2b60a', fg: '#f5eab8' },
+    gray: { bg: '#2a2c2e', border: '#7a8085', fg: '#d5d8da' },
+    greenery: { bg: '#22331a', border: '#5ab840', fg: '#cde8bb' },
+    marsala: { bg: '#362033', border: '#c470b0', fg: '#f0d2ea' },
+  },
+  miuay: {
+    notebook: { bg: '#fdf3e0', border: '#d8b878', fg: '#4a3818' },
+    peri: { bg: '#eef2ff', border: '#4c84ff', fg: '#1f2e5c' },
+    magenta: { bg: '#ffe4f0', border: '#ff4d94', fg: '#5c1e35' },
+    peach: { bg: '#ffeadb', border: '#ff8f4d', fg: '#5c3010' },
+    mocha: { bg: '#f3e9df', border: '#c09068', fg: '#42301e' },
+    'classic-blue': { bg: '#e5eeff', border: '#4c84ff', fg: '#1f2e5c' },
+    coral: { bg: '#ffe3e0', border: '#ff5f55', fg: '#5c1e1a' },
+    yellow: { bg: '#fff6cf', border: '#f0c020', fg: '#4a3e08' },
+    gray: { bg: '#f2f3f5', border: '#9ba0a8', fg: '#33363b' },
+    greenery: { bg: '#e6f5df', border: '#43c94d', fg: '#1e4218' },
+    marsala: { bg: '#f2e5ff', border: '#9c6bff', fg: '#3a2360' },
+  },
+  'miuay-dark': {
+    notebook: { bg: '#3a3020', border: '#d0b070', fg: '#f5ecd5' },
+    peri: { bg: '#232c45', border: '#6a94ff', fg: '#d8e2ff' },
+    magenta: { bg: '#3d2030', border: '#ff6da8', fg: '#fbd3e4' },
+    peach: { bg: '#3d2617', border: '#ff9455', fg: '#fde0c5' },
+    mocha: { bg: '#302620', border: '#c09068', fg: '#ecdcca' },
+    'classic-blue': { bg: '#1d2840', border: '#6a94ff', fg: '#d5e2ff' },
+    coral: { bg: '#3d1f1e', border: '#ff6a60', fg: '#fbd4d0' },
+    yellow: { bg: '#3a3115', border: '#f0c020', fg: '#f8eec0' },
+    gray: { bg: '#27292d', border: '#808690', fg: '#dadde2' },
+    greenery: { bg: '#1d3220', border: '#43c94d', fg: '#cceccf' },
+    marsala: { bg: '#2c2038', border: '#a87aff', fg: '#e6d9ff' },
   },
 };
 
-export function notePalette(theme: ThemeId): NotePalette {
-  const palette = NOTE_PALETTES[theme] ?? NOTE_PALETTES.vanilla;
+export function notePalette(theme: ThemeId, cardsTheme?: ThemeId | null): NotePalette {
+  const palette = NOTE_PALETTES[cardsTheme ?? theme] ?? NOTE_PALETTES.academic;
   // «Тетрадный» цвет светлый во всех темах, поэтому текст на нём всегда тёмный.
   return { ...palette, notebook: { ...palette.notebook, fg: '#2b1f14' } };
 }
@@ -245,5 +276,5 @@ export const NOTE_LABELS: Record<NoteColor, string> = {
 };
 
 export function isDrawioTheme(theme: ThemeId): boolean {
-  return theme === 'academic' || theme === 'academic-dark';
+  return theme === 'academic' || theme === 'academic-light';
 }

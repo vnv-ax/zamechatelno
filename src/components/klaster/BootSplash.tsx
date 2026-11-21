@@ -8,7 +8,7 @@ export function BootSplash() {
         position: 'fixed',
         inset: 0,
         zIndex: 2147483647,
-        backgroundColor: '#D6BFA3',
+        backgroundColor: '#191B1E',
         transition: 'opacity 320ms ease',
       }}
     />

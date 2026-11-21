@@ -3,7 +3,8 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useAppStore } from '@/lib/klaster/store';
-import { notePalette, NOTE_LABELS } from '@/lib/klaster/theme';
+import { NOTE_LABELS } from '@/lib/klaster/theme';
+import { useNotePalette } from '@/lib/klaster/useNotePalette';
 import type { CardStatus, NoteColor } from '@/lib/klaster/types';
 import { fitView } from './Canvas';
 
@@ -16,8 +17,7 @@ interface Item {
 
 export function ContextMenuHost() {
   const menu = useAppStore((s) => s.contextMenu);
-  const theme = useAppStore((s) => s.theme);
-  const palette = notePalette(theme);
+  const palette = useNotePalette();
   const ref = useRef<HTMLDivElement>(null);
   const [tagDraft, setTagDraft] = useState('');
   const st = useAppStore.getState();
@@ -236,6 +236,7 @@ export function ContextMenuHost() {
       { label: 'Остриё в начало', action: () => st.setConnectionArrow(menu.connectionId!, 'start') },
       { label: 'В обе стороны', action: () => st.setConnectionArrow(menu.connectionId!, 'both') },
       { label: 'Без остриё', action: () => st.setConnectionArrow(menu.connectionId!, 'none') },
+      { label: 'Выпрямить линию', action: () => st.setConnectionControlPoint(menu.connectionId!, null) },
       {
         label: 'Удалить связь',
         action: () => st.deleteConnection(menu.connectionId!),

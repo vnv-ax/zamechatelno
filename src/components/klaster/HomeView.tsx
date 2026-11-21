@@ -17,7 +17,6 @@ import { exportBoards } from '@/lib/klaster/download';
 import { BoardThumb } from './BoardThumb';
 import { HomeCalendar } from './HomeCalendar';
 import { SettingsMenu } from './SettingsMenu';
-import { PlainBgButton } from './PlainBgButton';
 import { InfoMenu } from './Topbar';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -142,7 +141,6 @@ export function HomeView() {
               Экспорт
             </button>
             <InfoMenu />
-            <PlainBgButton size="md" />
             <SettingsMenu />
             <button
               className="flex h-9 items-center gap-2 rounded-md px-3.5 text-[13px] font-medium text-white transition-colors hover:brightness-105"

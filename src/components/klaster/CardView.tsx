@@ -4,6 +4,14 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { EditorContent, useEditor } from '@tiptap/react';
+import { generateHTML } from '@tiptap/core';
+import StarterKit from '@tiptap/starter-kit';
+import Link from '@tiptap/extension-link';
+import Placeholder from '@tiptap/extension-placeholder';
+import Underline from '@tiptap/extension-underline';
+import TextAlign from '@tiptap/extension-text-align';
+import { TextStyle, FontSize } from '@tiptap/extension-text-style';
 import {
   AlarmClock,
   ArrowUpRight,
@@ -47,11 +55,15 @@ import { uid } from '@/lib/klaster/id';
 import { focusCard, getBacklinks } from './Canvas';
 import { dateKey, describeItemRepeat, nextOccurrence } from '@/lib/klaster/repeat';
 import type { ItemRepeat } from '@/lib/klaster/types';
-import { notePalette, NOTE_LABELS } from '@/lib/klaster/theme';
+import { NOTE_LABELS } from '@/lib/klaster/theme';
+import { useNotePalette, notePaletteWithMix } from '@/lib/klaster/useNotePalette';
 import { applyImageFilter, IMAGE_FILTERS } from '@/lib/klaster/filters';
 import type { ImageFilterId } from '@/lib/klaster/types';
 import type { ThemeId } from '@/lib/klaster/theme';
 import { canvasHandle, clientToWorld } from '@/lib/klaster/canvasHandle';
+import { attachSticky } from '@/lib/klaster/sticky';
+import type { StickyHandle } from '@/lib/klaster/sticky';
+import { observeCardVisibility } from '@/lib/klaster/viewport';
 import { BoardThumb } from './BoardThumb';
 import { toast } from '@/hooks/use-toast';
 import { Hint } from './Hint';
@@ -92,14 +104,14 @@ function starPoints(cx: number, cy: number, outer: number, inner: number, spikes
   return pts.join(' ');
 }
 
-function tagTint(card: Card, theme: ThemeId): string {
-  const palette = notePalette(theme);
+function tagTint(card: Card, theme: ThemeId, cardsTheme: ThemeId | null): string {
+  const palette = notePaletteWithMix(theme, { cards: cardsTheme });
   const c = palette[(card.tags?.[0] as NoteColor) ?? 'peri'] ?? palette.peri;
   return c.bg;
 }
 
-function stripColor(card: Card, theme: ThemeId): string {
-  const palette = notePalette(theme);
+function stripColor(card: Card, theme: ThemeId, cardsTheme: ThemeId | null): string {
+  const palette = notePaletteWithMix(theme, { cards: cardsTheme });
   const c = palette[(card.color ?? 'peri') as NoteColor] ?? palette.peri;
   return c.bg;
 }
@@ -149,6 +161,148 @@ interface DragSession {
 
 let session: DragSession | null = null;
 
+/** На время перетаскивания блоков гасим выделение текста (приём milanote:
+ *  иначе браузер при drag за карточку выделяет текст соседних блоков) */
+function setCardsDragging(on: boolean) {
+  document.body.classList.toggle('is-dragging-cards', on);
+  if (on) {
+    try {
+      window.getSelection()?.removeAllRanges();
+    } catch { /* пусто */ }
+  }
+}
+
+/** Открыть ссылку в браузере: window.open + запасной клик по скрытому <a target=_blank> */
+function openExternal(url: string) {
+  let w: Window | null = null;
+  try {
+    w = window.open(url, '_blank', 'noopener,noreferrer');
+  } catch {
+    w = null;
+  }
+  if (!w) {
+    try {
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.style.display = 'none';
+      document.body.append(a);
+      a.click();
+      a.remove();
+    } catch {
+      // последний фолбэк — текущая вкладка
+      window.location.href = url;
+    }
+  }
+}
+
+/** Диалог «Переходим по ссылке?» — действие выполняется прямо в обработчике кнопки,
+ *  чтобы сохранить пользовательский жест (иначе открытие может быть заблокировано) */
+function confirmOpenLink(url: string, onYes: () => void) {
+  let done = false;
+  const finish = (ok: boolean) => {
+    if (done) return;
+    done = true;
+    window.removeEventListener('keydown', onKey, true);
+    overlay.remove();
+    if (ok) onYes();
+  };
+  const onKey = (e: KeyboardEvent) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      finish(true);
+    } else if (e.key === 'Escape') {
+      finish(false);
+    }
+  };
+
+  const overlay = document.createElement('div');
+  Object.assign(overlay.style, {
+    position: 'fixed',
+    inset: '0',
+    zIndex: '9999',
+    background: 'rgba(0,0,0,0.45)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  } as Partial<CSSStyleDeclaration>);
+  overlay.addEventListener('pointerdown', (e) => {
+    if (e.target === overlay) finish(false);
+  });
+
+  const box = document.createElement('div');
+  Object.assign(box.style, {
+    maxWidth: '360px',
+    margin: '0 16px',
+    padding: '16px 18px',
+    background: 'var(--card-bg)',
+    color: 'var(--text-main)',
+    border: '1px solid var(--card-border)',
+    borderRadius: '12px',
+    boxShadow: '0 18px 48px rgba(0,0,0,0.4)',
+  } as Partial<CSSStyleDeclaration>);
+
+  const title = document.createElement('div');
+  title.textContent = 'Переходим по ссылке?';
+  Object.assign(title.style, { fontSize: '14.5px', fontWeight: '600' } as Partial<CSSStyleDeclaration>);
+
+  const urlLine = document.createElement('div');
+  urlLine.textContent = url;
+  urlLine.title = url;
+  Object.assign(urlLine.style, {
+    marginTop: '6px',
+    fontSize: '12px',
+    color: 'var(--text-secondary)',
+    wordBreak: 'break-all',
+    maxHeight: '72px',
+    overflow: 'hidden',
+  } as Partial<CSSStyleDeclaration>);
+
+  const row = document.createElement('div');
+  Object.assign(row.style, { display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px' } as Partial<CSSStyleDeclaration>);
+
+  const no = document.createElement('button');
+  no.textContent = 'Неа';
+  Object.assign(no.style, {
+    padding: '5px 14px',
+    fontSize: '12.5px',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    background: 'transparent',
+    color: 'var(--text-secondary)',
+    border: '1px solid var(--card-border)',
+  } as Partial<CSSStyleDeclaration>);
+  no.addEventListener('click', () => finish(false));
+
+  const yes = document.createElement('button');
+  yes.textContent = 'Так точно';
+  Object.assign(yes.style, {
+    padding: '5px 14px',
+    fontSize: '12.5px',
+    fontWeight: '600',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    background: 'var(--accent)',
+    color: '#fff',
+    border: '1px solid transparent',
+  } as Partial<CSSStyleDeclaration>);
+  yes.addEventListener('click', () => finish(true));
+
+  row.append(no, yes);
+  box.append(title, urlLine, row);
+  overlay.append(box);
+  document.body.append(overlay);
+  window.addEventListener('keydown', onKey, true);
+  setTimeout(() => yes.focus(), 0);
+}
+
+/** Спросить и открыть ссылку */
+function openLinkAfterConfirm(url: string) {
+  confirmOpenLink(url, () => openExternal(url));
+}
+
 function suppressPostDragClick(draggedIds: Set<string>) {
   const onClick = (ev: MouseEvent) => {
     window.removeEventListener('click', onClick, true);
@@ -166,6 +320,11 @@ function suppressPostDragClick(draggedIds: Set<string>) {
 }
 
 function endSession(e: PointerEvent) {
+  if (sessionMoveFrame) {
+    cancelAnimationFrame(sessionMoveFrame);
+    sessionMoveFrame = 0;
+    sessionMovePending = null;
+  }
   window.removeEventListener('pointermove', onSessionMove);
   window.removeEventListener('pointerup', onSessionUp);
   if (!session) return;
@@ -202,6 +361,7 @@ function endSession(e: PointerEvent) {
   st.setDragging(false);
   st.setDropPreview(null);
   st.setExtractGhost(null);
+  setCardsDragging(false);
 
   if (s.moved) {
     const ids = new Set(s.ids);
@@ -211,6 +371,11 @@ function endSession(e: PointerEvent) {
 }
 
 function cancelSessionSilently() {
+  if (sessionMoveFrame) {
+    cancelAnimationFrame(sessionMoveFrame);
+    sessionMoveFrame = 0;
+    sessionMovePending = null;
+  }
   window.removeEventListener('pointermove', onSessionMove);
   window.removeEventListener('pointerup', onSessionUp);
   if (!session) return;
@@ -219,6 +384,7 @@ function cancelSessionSilently() {
   st.setDragging(false);
   st.setDropPreview(null);
   st.setExtractGhost(null);
+  setCardsDragging(false);
 }
 
 function computeColumnIndex(colEl: HTMLElement, clientY: number, excludeId?: string): number {
@@ -256,7 +422,23 @@ function resolveDropTarget(
   return null;
 }
 
+// События перетаскивания батчатся через rAF: одно обновление на кадр (приём milanote)
+let sessionMoveFrame = 0;
+let sessionMovePending: PointerEvent | null = null;
+
 function onSessionMove(e: PointerEvent) {
+  sessionMovePending = e;
+  if (sessionMoveFrame) return;
+  sessionMoveFrame = requestAnimationFrame(() => {
+    sessionMoveFrame = 0;
+    const ev = sessionMovePending;
+    sessionMovePending = null;
+    if (!session || !ev) return;
+    processSessionMove(ev);
+  });
+}
+
+function processSessionMove(e: PointerEvent) {
   if (!session) return;
   const s = session;
   const st = useAppStore.getState();
@@ -266,6 +448,7 @@ function onSessionMove(e: PointerEvent) {
     if (Math.hypot(e.clientX - s.startX, e.clientY - s.startY) < 4) return;
     s.moved = true;
     st.pushHistory();
+    setCardsDragging(true);
     if (s.copyPending && s.mode === 'top') {
       st.duplicateCards(s.ids);
       s.ids = st.selection;
@@ -343,6 +526,13 @@ function pushOnce(key: object) {
     useAppStore.getState().pushHistory();
     histFlags.set(key, true);
   }
+}
+
+/** Завершить правку при потере фокуса только пока окно приложения активно.
+ *  Alt+Tab / переключение окон (document.hasFocus() === false) ввод не сбрасывает:
+ *  вернулся — печатаешь дальше. Выход — клик вне текста или Escape. */
+function blurEndEditing() {
+  if (document.hasFocus()) useAppStore.getState().setEditing(null);
 }
 
 function startTopDrag(e: React.PointerEvent, cardId: string, locked: boolean) {
@@ -447,10 +637,23 @@ function startConnect(e: React.PointerEvent, cardId: string) {
   const move = (ev: PointerEvent) => {
     const p = clientToWorld(ev.clientX, ev.clientY);
     if (p) useAppStore.getState().setConnecting({ from: cardId, x: p.x, y: p.y });
+    // Подсветка карточки, на которую можно уронить связь (как dropPreview)
+    const els = document.elementsFromPoint(ev.clientX, ev.clientY);
+    let hoverId: string | undefined;
+    for (const el of els) {
+      const cand = el.closest('[data-card-id]') as HTMLElement | null;
+      if (cand && cand.dataset.cardId !== cardId) {
+        hoverId = cand.dataset.cardId;
+        break;
+      }
+    }
+    useAppStore.getState().setDropPreview(hoverId ? { cardId: hoverId } : null);
   };
   const up = (ev: PointerEvent) => {
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
+    const st2 = useAppStore.getState();
+    st2.setDropPreview(null);
     const els = document.elementsFromPoint(ev.clientX, ev.clientY);
     let targetId: string | undefined;
     for (const el of els) {
@@ -508,71 +711,200 @@ function ArticleBody({ text, markdown, boardId }: { text: string; markdown?: boo
   );
 }
 
-function NoteEditor({ card, editing }: { card: Card; editing: boolean }) {
-  const ref = useRef<HTMLTextAreaElement>(null);
-  const text = card.data.kind === 'note' ? card.data.text : '';
-  const color = card.data.kind === 'note' ? card.data.color : 'yellow';
+// ---------- Tiptap-редактор (как в milanote) ----------
 
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = el.scrollHeight + 'px';
-  }, [text]);
+/** Старый текст — простой текст/Markdown; новый — HTML из tiptap */
+const isHtmlContent = (s: string) => /^\s*<(p|div|h[1-6]|ul|ol|blockquote|pre|table|span)/i.test(s ?? '');
+/** Новый формат хранения: ProseMirror JSON (как в milanote) */
+const isJsonContent = (s: string) => /^\s*\{\s*"/.test(s ?? '') && (s ?? '').includes('"type":"doc"');
 
-  if (!editing || card.data.kind !== 'note') return null;
+/** Точка клика для постановки каретки при входе в правку (как в milanote) */
+let pendingCaret: { cardId: string; x: number; y: number } | null = null;
+
+/** Старый простой текст → параграфы HTML для tiptap */
+function legacyToHtml(s: string): string {
+  return s
+    .split(/\n{2,}/)
+    .map((p) => `<p>${p.replace(/\n/g, '<br>').replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`)
+    .join('');
+}
+
+/** Просмотр HTML-содержимого с кликабельными ссылками на блоки */
+function HtmlRichText({ html, boardId }: { html: string; boardId?: string }) {
+  const onClick = (e: React.MouseEvent) => {
+    const a = (e.target as HTMLElement).closest('a');
+    if (!a) return;
+    const href = a.getAttribute('href') ?? '';
+    if (href.startsWith('#block:') && boardId) {
+      e.preventDefault();
+      e.stopPropagation();
+      focusCard(boardId, href.slice('#block:'.length));
+    } else if (href && !href.startsWith('#')) {
+      e.preventDefault();
+      e.stopPropagation();
+      openLinkAfterConfirm(href);
+    }
+  };
   return (
-    <textarea
-      ref={ref}
-      data-nodrag
-      className="w-full resize-none border-0 bg-transparent p-0 outline-none"
-      style={{ color: 'var(--text-main)', fontSize: 'calc(14px * var(--content-scale))', lineHeight: 1.45 }}
-      value={text}
-      placeholder="Введите текст…"
-      autoFocus
-      onFocus={() => pushOnce(card)}
-      onChange={(e) =>
-        useAppStore.getState().updateCardData(card.id, { kind: 'note', text: e.target.value, color })
-      }
-      onBlur={() => useAppStore.getState().setEditing(null)}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') e.currentTarget.blur();
-        e.stopPropagation();
-      }}
-    />
+    <div className="rte-view" onClick={onClick} onDoubleClick={(e) => e.stopPropagation()}>
+      <div dangerouslySetInnerHTML={{ __html: html }} />
+    </div>
   );
 }
 
-function TextEditor({ card, editing }: { card: Card; editing: boolean }) {
-  const ref = useRef<HTMLTextAreaElement>(null);
-  const text = card.data.kind === 'text' ? card.data.text : '';
+/** Кегль текста — атрибут метки textStyle (S/M/L) */
+const FONT_SIZES = [
+  { id: 'S', px: 12, label: 'S' },
+  { id: 'M', px: 14, label: 'M' },
+  { id: 'L', px: 18, label: 'L' },
+];
+
+function TiptapEditor({ cardId, kind, initial }: { cardId: string; kind: 'note' | 'text'; initial: string }) {
+  // Отложенная запись (как ExternalStoreSynchroniser в milanote):
+  // store обновляется через паузу, мгновенный сброс — на blur/Escape/размонтирование
+  const pendingRef = useRef<string | null>(null);
+  const timerRef = useRef<number | null>(null);
+  const commitRef = useRef<() => void>(() => {});
+
+  const editor = useEditor(
+    {
+      extensions: [
+        StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
+        Link.configure({ openOnClick: false, autolink: true }),
+        Underline,
+        TextStyle,
+        FontSize,
+        TextAlign.configure({ types: ['heading', 'paragraph'] }),
+        Placeholder.configure({
+          placeholder: kind === 'note' ? 'Введите текст…' : 'Введите текст…',
+        }),
+      ],
+      content: isJsonContent(initial)
+        ? JSON.parse(initial)
+        : isHtmlContent(initial)
+          ? initial
+          : legacyToHtml(initial ?? ''),
+      editorProps: {
+        attributes: {
+          class: 'rte-content',
+          'data-nodrag': 'true',
+          spellcheck: 'true',
+        },
+        handleKeyDown: (view, event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            commitRef.current();
+            useAppStore.getState().setEditing(null);
+            return true;
+          }
+          // Delete на пустой карточке удаляет её (Backspace — только текст)
+          if (event.key === 'Delete') {
+            const emptyDoc = view.state.doc.childCount <= 1 && view.state.doc.textContent === '';
+            if (emptyDoc) {
+              event.preventDefault();
+              const st = useAppStore.getState();
+              st.setEditing(null);
+              st.deleteCards([cardId]);
+              return true;
+            }
+          }
+          return false;
+        },
+      },
+      onUpdate: ({ editor }) => {
+        // Универсальная карточка (как в milanote): весь текст = «[ ]» / «[x]» → становится задачей
+        const text = editor.getText();
+        if (/^\[[ x]\]?\s*$/i.test(text)) {
+          const st = useAppStore.getState();
+          st.updateCardData(cardId, {
+            kind: 'todo',
+            items: [{ id: uid(), text: '', done: /[x]/i.test(text) }],
+          });
+          st.setEditing(null);
+          st.setSelection([cardId]);
+          return;
+        }
+        // Контент — ProseMirror JSON; запись в store откладывается
+        pendingRef.current = editor.isEmpty ? '' : JSON.stringify(editor.getJSON());
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = window.setTimeout(() => commitRef.current(), 700);
+      },
+      onBlur: () => {
+        commitRef.current();
+        blurEndEditing();
+      },
+    },
+    [cardId, kind],
+  );
+
+  // Запись текста в карточку (мгновенный сброс отложенного)
+  commitRef.current = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    if (pendingRef.current === null) return;
+    const content = pendingRef.current;
+    pendingRef.current = null;
+    const st = useAppStore.getState();
+    const card = st.boards[st.breadcrumb[st.breadcrumb.length - 1]]?.cards.find((c) => c.id === cardId);
+    if (kind === 'note') {
+      st.updateCardData(cardId, { kind: 'note', text: content, color: card?.data.kind === 'note' ? card.data.color : 'yellow' });
+    } else {
+      st.updateCardData(cardId, { kind: 'text', text: content });
+    }
+  };
 
   useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = el.scrollHeight + 'px';
-  }, [text]);
+    if (!editor) return;
+    useAppStore.getState().setRteEditor(editor);
+    // каретка в точку клика, если правку начали кликом по карточке
+    const t = setTimeout(() => {
+      if (pendingCaret && pendingCaret.cardId === cardId) {
+        try {
+          const pos = editor.view.posAtCoords({ left: pendingCaret.x, top: pendingCaret.y });
+          editor.commands.focus(pos?.pos ?? 'end');
+        } catch {
+          editor.commands.focus('end');
+        }
+        pendingCaret = null;
+      } else {
+        editor.commands.focus('end');
+      }
+    }, 0);
+    return () => {
+      clearTimeout(t);
+      commitRef.current();
+      if (useAppStore.getState().rteEditor === editor) useAppStore.getState().setRteEditor(null);
+    };
+  }, [editor]);
 
-  if (!editing || card.data.kind !== 'text') return null;
+  if (!editor) return null;
   return (
-    <textarea
-      ref={ref}
+    <div
       data-nodrag
-      className="w-full resize-none border-0 bg-transparent p-0 outline-none"
-      style={{ color: 'var(--text-main)', fontSize: 'calc(13.5px * var(--content-scale))', lineHeight: 1.5 }}
-      value={text}
-      placeholder="Введите текст… Поддерживается Markdown: **жирный**, списки, # заголовки"
-      autoFocus
-      onFocus={() => pushOnce(card)}
-      onChange={(e) => useAppStore.getState().updateCardData(card.id, { kind: 'text', text: e.target.value })}
-      onBlur={() => useAppStore.getState().setEditing(null)}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') e.currentTarget.blur();
-        e.stopPropagation();
-      }}
-    />
+      className="w-full"
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <EditorContent editor={editor} />
+    </div>
   );
+}
+
+/** Просмотр ProseMirror-JSON: конвертируется в HTML теми же расширениями */
+function jsonToHtml(json: string): string | null {
+  try {
+    return generateHTML(JSON.parse(json), [
+      StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
+      Link.configure({ openOnClick: false }),
+      Underline,
+      TextStyle,
+      FontSize,
+      TextAlign.configure({ types: ['heading', 'paragraph'] }),
+    ]);
+  } catch {
+    return null;
+  }
 }
 
 function MarkdownView({ text, boardId }: { text: string; boardId?: string }) {
@@ -1403,7 +1735,7 @@ function EntityBody({
 
   return (
     <div
-      className="w-full p-[10px] pb-[9px]"
+      className="flex-1 w-full p-[10px] pb-[9px]"
       style={{
         background: 'var(--card-bg)',
         border: '1px solid var(--card-border)',
@@ -1563,7 +1895,7 @@ function EntityVisualBody({
 
   return (
     <div
-      className="w-full"
+      className="flex-1 w-full"
       style={{
         background: 'var(--card-bg)',
         border: '1px solid var(--card-border)',
@@ -1704,7 +2036,16 @@ interface CardViewProps {
 function CardViewInner({ cardId, boardId }: CardViewProps) {
   const card = useAppStore((s) => s.boards[boardId]?.cards.find((c) => c.id === cardId));
   const selected = useAppStore((s) => s.selection.includes(cardId));
+  // Был ли блок единственным выделенным ещё до нажатия мыши (для «клик — правка»)
+  const wasSelectedOnDown = useRef(false);
+  // Viewport-рендеринг: карточка далеко за листом рисуется заглушкой (как в kinopio)
+  const [vpVisible, setVpVisible] = useState(true);
+  useEffect(() => {
+    if (!rootRef.current) return;
+    return observeCardVisibility('card:' + cardId, rootRef.current, setVpVisible);
+  }, [cardId]);
   const theme = useAppStore((s) => s.theme);
+  const mixCards = useAppStore((s) => s.simpleMix?.cards ?? null);
   const dropPreviewCard = useAppStore((s) => s.dropPreview?.cardId === cardId);
   const extractGhost = useAppStore((s) => s.extractGhost?.cardId === cardId);
   const editingId = useAppStore((s) => s.editingId);
@@ -1859,6 +2200,9 @@ function CardViewInner({ cardId, boardId }: CardViewProps) {
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
+    stickyRef.current?.reset();
+    const stDown = useAppStore.getState();
+    wasSelectedOnDown.current = stDown.selection.includes(cardId) && stDown.selection.length === 1;
     if ((e.target as HTMLElement).closest('[data-nodrag]')) return;
     if ((e.target as HTMLElement).closest('.block-link, .tag-link')) {
       e.stopPropagation();
@@ -1943,12 +2287,52 @@ function CardViewInner({ cardId, boardId }: CardViewProps) {
     handleAltClick(cardId, stash?.label ?? '', stash?.sourceId);
   };
 
+  // Одиночный клик по уже выделенной заметке/тексту сразу включает редактирование:
+  // первый клик выделяет блок, второй — ставит курсор. Двойной клик тоже работает.
+  const onShellClick = (e: React.MouseEvent) => {
+    onAltClick(e);
+    if (e.defaultPrevented) return;
+    // Kinopio: Ctrl+клик выделяет всю «гроздь» связанных карточек (обход графа)
+    if (stickyTheme && (e.ctrlKey || e.metaKey) && card.type !== 'column') {
+      const st = useAppStore.getState();
+      const board = st.boards[boardId];
+      if (board) {
+        const ids = new Set([cardId]);
+        let grew = true;
+        while (grew) {
+          grew = false;
+          for (const cn of board.connections) {
+            if (ids.has(cn.from) && !ids.has(cn.to)) { ids.add(cn.to); grew = true; }
+            if (ids.has(cn.to) && !ids.has(cn.from)) { ids.add(cn.from); grew = true; }
+          }
+        }
+        if (ids.size > 1) {
+          e.stopPropagation();
+          st.setSelection([...ids]);
+          return;
+        }
+      }
+    }
+    if (card.type !== 'note' && card.type !== 'text') return;
+    if (card.locked) return;
+    const t = e.target as HTMLElement;
+    if (t.closest('[data-nodrag], input, textarea, button, a, .block-link, .tag-link')) return;
+    const st = useAppStore.getState();
+    if (st.dragging || st.editingId === cardId) return;
+    if (wasSelectedOnDown.current) {
+      e.stopPropagation();
+      pendingCaret = { cardId, x: e.clientX, y: e.clientY };
+      st.setEditing(cardId);
+    }
+  };
+
   const onDoubleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     const st = useAppStore.getState();
     switch (card.type) {
       case 'note':
       case 'text':
+        pendingCaret = { cardId, x: e.clientX, y: e.clientY };
         st.setEditing(cardId);
         break;
       case 'todo':
@@ -1961,7 +2345,7 @@ function CardViewInner({ cardId, boardId }: CardViewProps) {
         if (!card.data.url) {
           openLinkEditor();
         } else {
-          window.open(card.data.url, '_blank', 'noopener');
+          openLinkAfterConfirm(card.data.url);
         }
         break;
       case 'board':
@@ -2030,19 +2414,26 @@ function CardViewInner({ cardId, boardId }: CardViewProps) {
   };
 
   const isDraw = card.type === 'draw';
+  // Тело заметки/текста/каталога должно заполнять блок по высоте даже при
+  // ручном растяжении: оболочка — flex-колонка, тело — flex-1.
+  const flexShell = card.type === 'draw' || card.type === 'shape' || card.type === 'image'
+    ? {}
+    : { display: 'flex', flexDirection: 'column' };
   const shellStyle: React.CSSProperties = isChild
     ? {
         width: card.w,
+        ...flexShell,
         opacity: extractGhost ? 0.3 : 1,
       }
     : {
         left: card.x,
         top: card.y,
         width: card.w,
+        ...flexShell,
         ...(autoH
-          ? card.hManual
-            ? { height: Math.max(52, card.h), minHeight: Math.max(52, card.h) }
-            : {}
+          ? // Высота задаётся содержанием: card.h (в т.ч. растянутая вручную) — это минимум,
+            // поэтому блок растёт, когда текста становится больше.
+            { minHeight: Math.max(52, card.h) }
           : { height: card.h }),
 
         zIndex: isDraw ? 4 : dragging ? 40 : panel ? 45 : selected ? 20 : 10,
@@ -2075,48 +2466,109 @@ function CardViewInner({ cardId, boardId }: CardViewProps) {
   // пипка и ручки не исчезают мгновенно: держим 900 мс после ухода курсора
   const [handlesSticky, setHandlesSticky] = useState(false);
   const stickyTimer = useRef<number | null>(null);
+  // «Резиновые» карточки — только в теме «Кинопио»
+  const stickyRef = useRef<StickyHandle | null>(null);
+  const stickyTheme = theme === 'kinopio';
   const onCardEnter = () => {
     setHovered(true);
     if (stickyTimer.current) { window.clearTimeout(stickyTimer.current); stickyTimer.current = null; }
+    if (stickyTheme && rootRef.current && !card.locked && card.type !== 'draw' && card.type !== 'shape') {
+      stickyRef.current?.dispose();
+      stickyRef.current = attachSticky(rootRef.current, () => {
+        const s = useAppStore.getState();
+        // липучка живёт только в теме «Кинопио» — сменил тему, и она отпустила
+        return s.theme === 'kinopio' && !s.dragging && s.editingId !== cardId;
+      });
+      stickyRef.current.enter();
+    }
   };
   const onCardLeave = () => {
     setHovered(false);
     setHandlesSticky(true);
+    stickyRef.current?.leave();
     if (stickyTimer.current) window.clearTimeout(stickyTimer.current);
     stickyTimer.current = window.setTimeout(() => setHandlesSticky(false), 900);
   };
-  useEffect(() => () => { if (stickyTimer.current) window.clearTimeout(stickyTimer.current); }, []);
+  useEffect(() => () => {
+    if (stickyTimer.current) window.clearTimeout(stickyTimer.current);
+    stickyRef.current?.dispose();
+  }, []);
+  // сменил тему с «Кинопио» — липучка немедленно отпускает
+  useEffect(() => {
+    if (theme !== 'kinopio') {
+      stickyRef.current?.dispose();
+      stickyRef.current = null;
+    }
+  }, [theme]);
   const showHandles = (hovered || selected || handlesSticky) && !dragging;
   const previewStyle: React.CSSProperties = dropPreviewCard
     ? { boxShadow: '0 0 0 3px color-mix(in srgb, var(--accent) 33%, transparent), 0 0 0 2px var(--accent)' }
     : {};
 
-  const mergedStyle: React.CSSProperties = { ...shellStyle, ...previewStyle };
+  // Стекло нового дизайна Apple: матовый blur прямо инлайном — минификатор CSS
+  // вырезает стандартный backdrop-filter, инлайн-стиль не трогает
+  const glassStyle: React.CSSProperties =
+    theme === 'apple' || theme === 'apple-night'
+      ? { backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)' }
+      : {};
+  const mergedStyle: React.CSSProperties = { ...shellStyle, ...glassStyle, ...previewStyle };
+
+  // Далеко за листом: лёгкая заглушка вместо полноценной карточки.
+  // Видимыми принудительно остаются выделенные, редактируемые и перетаскиваемые.
+  const sNow = useAppStore.getState();
+  const cardOnScreen =
+    vpVisible ||
+    selected ||
+    panel !== null ||
+    sNow.editingId === cardId ||
+    (sNow.dragging && sNow.selection.includes(cardId));
+  if (!cardOnScreen) {
+    return (
+      <div
+        ref={rootRef}
+        data-card-id={cardId}
+        data-column-id={card.type === 'column' ? cardId : undefined}
+        className={shellClass}
+        style={mergedStyle}
+        onPointerDown={onPointerDown}
+        onClick={onShellClick}
+        onContextMenu={onContextMenu}
+        onMouseEnter={onCardEnter}
+        onMouseLeave={onCardLeave}
+      />
+    );
+  }
 
   let inner: React.ReactNode = null;
 
   if (card.type === 'note') {
     const d = card.data as Extract<Card['data'], { kind: 'note' }>;
 
-    const palette = notePalette(theme);
+    const palette = notePaletteWithMix(theme, { cards: mixCards });
     const c = palette[d.color] ?? palette.yellow;
     const editing = editingId === cardId;
     inner = (
       <div
-        className={'h-full w-full p-[12px] note-body' + (card.locked ? ' note-newspaper' : '')}
+        className={'flex-1 w-full p-[12px] note-body' + (card.locked ? ' note-newspaper' : '')}
         style={{ background: card.locked ? undefined : c.bg, border: card.locked ? undefined : `1px solid ${c.border}`, color: c.fg ?? 'var(--note-text, var(--text-main))', minHeight: 52, borderRadius: 'var(--radius-card)' }}
         onDoubleClick={onDoubleClick}
       >
         {editing ? (
-          <NoteEditor card={card} editing={editing} />
+          <TiptapEditor cardId={cardId} kind="note" initial={d.text ?? ''} />
         ) : card.locked && d.text ? (
           <ArticleBody text={d.text} boardId={boardId} />
         ) : (
           <div className="whitespace-pre-wrap break-words" style={{ fontSize: 'calc(14px * var(--content-scale))', lineHeight: 1.45 }}>
             {d.text ? (
-              <NoteTextWithLinks text={d.text} boardId={boardId} />
+              isJsonContent(d.text) ? (
+                <HtmlRichText html={jsonToHtml(d.text) ?? ''} boardId={boardId} />
+              ) : isHtmlContent(d.text) ? (
+                <HtmlRichText html={d.text} boardId={boardId} />
+              ) : (
+                <NoteTextWithLinks text={d.text} boardId={boardId} />
+              )
             ) : (
-              <span style={{ color: c.fg ? `color-mix(in srgb, ${c.fg} 60%, transparent)` : 'var(--note-placeholder, var(--text-muted))' }}>Двойной клик</span>
+              <span style={{ color: c.fg ? `color-mix(in srgb, ${c.fg} 60%, transparent)` : 'var(--note-placeholder, var(--text-muted))' }}>…</span>
             )}
           </div>
         )}
@@ -2127,21 +2579,27 @@ function CardViewInner({ cardId, boardId }: CardViewProps) {
     const editing = editingId === cardId;
     inner = (
       <div
-        className="h-full w-full p-[12px]"
+        className="flex-1 w-full p-[12px]"
         style={{ background: 'var(--card-bg)', border: `1px solid var(--card-border)`, color: 'var(--text-main)', minHeight: 44, borderRadius: 'var(--radius-card)' }}
         onDoubleClick={onDoubleClick}
       >
         {editing ? (
-          <TextEditor card={card} editing={editing} />
+          <TiptapEditor cardId={cardId} kind="text" initial={d.text ?? ''} />
         ) : card.locked && d.text ? (
           <ArticleBody text={d.text} markdown />
         ) : (
           <>
             {d.text ? (
-              <MarkdownView text={d.text} boardId={boardId} />
+              isJsonContent(d.text) ? (
+                <HtmlRichText html={jsonToHtml(d.text) ?? ''} boardId={boardId} />
+              ) : isHtmlContent(d.text) ? (
+                <HtmlRichText html={d.text} boardId={boardId} />
+              ) : (
+                <MarkdownView text={d.text} boardId={boardId} />
+              )
             ) : (
               <div className="whitespace-pre-wrap break-words" style={{ fontSize: 'calc(13.5px * var(--content-scale))', lineHeight: 1.5 }}>
-                <span style={{ color: 'var(--text-muted)' }}>Текст — дважды кликните. Работает Markdown: **жирный**, списки, # заголовки</span>
+                <span style={{ color: 'var(--text-muted)' }}>…</span>
               </div>
             )}
           </>
@@ -2150,7 +2608,7 @@ function CardViewInner({ cardId, boardId }: CardViewProps) {
     );
   } else if (card.type === 'shape') {
     const d = card.data as Extract<Card['data'], { kind: 'shape' }>;
-    const palette = notePalette(theme);
+    const palette = notePaletteWithMix(theme, { cards: mixCards });
     const c = palette[d.color] ?? palette['classic-blue'];
     const s = { fill: c.bg, stroke: c.border === 'transparent' ? 'rgba(0,0,0,0.25)' : c.border, strokeWidth: 2 };
     inner = (
@@ -2185,9 +2643,10 @@ function CardViewInner({ cardId, boardId }: CardViewProps) {
             key={index}
             points={stroke.points}
             width={stroke.width || 4}
-            style={stroke.style ?? 'pen'}
+            style={stroke.style ?? 'ink'}
             color={stroke.color ?? 'var(--text-main)'}
             pressures={stroke.pressures}
+            baked={stroke.baked}
           />
         ))}
       </svg>
@@ -2196,7 +2655,7 @@ function CardViewInner({ cardId, boardId }: CardViewProps) {
     const d = card.data as Extract<Card['data'], { kind: 'todo' }>;
     inner = (
       <div
-        className="w-full p-[10px] pb-[6px]"
+        className="flex-1 w-full p-[10px] pb-[6px]"
         style={{ background: 'var(--card-bg)', border: `1px solid var(--card-border)`, color: 'var(--text-main)', minHeight: 60, borderRadius: 'var(--radius-card)' }}
       >
         <div className="flex flex-col gap-[6px]">
@@ -2420,7 +2879,7 @@ function CardViewInner({ cardId, boardId }: CardViewProps) {
       }
       inner = (
         <div
-          className="flex w-full items-start gap-2.5 p-[10px]"
+          className="flex flex-1 w-full items-start gap-2.5 p-[10px]"
           style={{ background: 'var(--card-bg)', border: `1px solid var(--card-border)`, borderRadius: 'var(--radius-card)' }}
           onDoubleClick={onDoubleClick}
         >
@@ -2527,7 +2986,7 @@ function CardViewInner({ cardId, boardId }: CardViewProps) {
       className={shellClass}
       style={mergedStyle}
       onPointerDown={onPointerDown}
-      onClick={onAltClick}
+      onClick={onShellClick}
       onMouseEnter={onCardEnter}
       onMouseLeave={onCardLeave}
       onDoubleClick={card.type === 'column' ? onDoubleClick : undefined}
@@ -2545,7 +3004,7 @@ function CardViewInner({ cardId, boardId }: CardViewProps) {
           className="pointer-events-none absolute bottom-0 left-0 right-0"
           style={{
             height: 8,
-            background: stripColor(card, theme),
+            background: stripColor(card, theme, mixCards),
             borderBottomLeftRadius: 'calc(var(--radius-card) - 1px)',
             borderBottomRightRadius: 'calc(var(--radius-card) - 1px)',
           }}
@@ -2555,7 +3014,7 @@ function CardViewInner({ cardId, boardId }: CardViewProps) {
       {card.tags && card.tags.length ? (
         <div
           className="pointer-events-none absolute inset-0 rounded-[inherit]"
-          style={{ background: tagTint(card, theme), opacity: 0.22 }}
+          style={{ background: tagTint(card, theme, mixCards), opacity: 0.22 }}
         />
       ) : null}
 
@@ -2631,6 +3090,20 @@ function CardViewInner({ cardId, boardId }: CardViewProps) {
         data-nodrag
         aria-label="Создать связь"
         className="mln-dot mln-dot-right"
+        style={{ opacity: showHandles && !isDraw ? 1 : 0, pointerEvents: showHandles && !isDraw ? 'auto' : 'none' }}
+        onPointerDown={(e) => startConnect(e, cardId)}
+      />
+      <button
+        data-nodrag
+        aria-label="Создать связь"
+        className="mln-dot mln-dot-top"
+        style={{ opacity: showHandles && !isDraw ? 1 : 0, pointerEvents: showHandles && !isDraw ? 'auto' : 'none' }}
+        onPointerDown={(e) => startConnect(e, cardId)}
+      />
+      <button
+        data-nodrag
+        aria-label="Создать связь"
+        className="mln-dot mln-dot-bottom"
         style={{ opacity: showHandles && !isDraw ? 1 : 0, pointerEvents: showHandles && !isDraw ? 'auto' : 'none' }}
         onPointerDown={(e) => startConnect(e, cardId)}
       />
@@ -2763,7 +3236,7 @@ function ColumnBody({
 
   return (
     <div
-      className="w-full p-[8px]"
+      className="flex-1 w-full p-[8px]"
       style={{
         background: isDropTarget ? 'var(--accent-soft)' : 'var(--chip-bg)',
         border: `1px ${isDropTarget ? 'dashed var(--accent)' : 'solid var(--card-border)'}`,
@@ -2782,7 +3255,7 @@ function ColumnBody({
             placeholder="Название колонки"
             onFocus={() => pushOnce(card)}
             onChange={(e) => useAppStore.getState().updateCardData(cardId, { kind: 'column', title: e.target.value, cardIds: d.cardIds })}
-            onBlur={() => useAppStore.getState().setEditing(null)}
+            onBlur={blurEndEditing}
             onKeyDown={(e) => {
               e.stopPropagation();
               if (e.key === 'Escape' || e.key === 'Enter') e.currentTarget.blur();
@@ -2827,6 +3300,201 @@ function InsertLine() {
   return <div className="my-[-2px] h-[3px] w-full rounded-full" style={{ background: 'var(--accent)' }} />;
 }
 
+/** Активное перетаскивание ссылки между каталогами / в блок «Ссылка» */
+interface LinkDragSession {
+  link: CatalogLink;
+  fromCardId: string;
+  ghost: HTMLElement;
+  line: HTMLElement;
+  startX: number;
+  startY: number;
+  moved: boolean;
+}
+
+let linkDrag: LinkDragSession | null = null;
+
+/** Убрать полосу-индикатор вставки из списка, где она сейчас стоит */
+function detachLinkLine(line: HTMLElement) {
+  line.parentElement?.removeChild(line);
+}
+
+/** Найти список каталога под точкой: строка или тело каталога */
+function linkDropListAt(x: number, y: number): { list: HTMLElement; cardId: string; row: HTMLElement | null } | null {
+  const els = document.elementsFromPoint(x, y);
+  for (const el of els) {
+    const rowEl = el.closest('[data-catalog-row]') as HTMLElement | null;
+    if (rowEl) {
+      const list = rowEl.closest('[data-catalog-list]') as HTMLElement | null;
+      if (list?.dataset.catalogList) return { list, cardId: list.dataset.catalogList, row: rowEl };
+    }
+    const bodyEl = el.closest('[data-catalog-body]') as HTMLElement | null;
+    if (bodyEl?.dataset.catalogBody) {
+      const list = bodyEl.querySelector('[data-catalog-list]') as HTMLElement | null;
+      if (list) return { list, cardId: bodyEl.dataset.catalogBody, row: null };
+    }
+  }
+  return null;
+}
+
+/** Вставить ссылку в каталог-цель на позицию index (с удалением из источника) */
+function moveCatalogLink(link: CatalogLink, fromCardId: string, toCardId: string, index: number) {
+  const st = useAppStore.getState();
+  const board = Object.values(st.boards).find((b) => b.cards.some((c) => c.id === fromCardId));
+  if (!board) return;
+  const srcCard = board.cards.find((c) => c.id === fromCardId);
+  const dstCard = board.cards.find((c) => c.id === toCardId);
+  if (!srcCard || !dstCard || srcCard.data.kind !== 'catalog' || dstCard.data.kind !== 'catalog') return;
+
+  const srcLinks = srcCard.data.links.filter((l) => l.id !== link.id);
+  if (fromCardId === toCardId) {
+    // Перестановка внутри одного каталога: индекс после удаления корректируется сам
+    const i = Math.max(0, Math.min(index, srcLinks.length));
+    srcLinks.splice(i, 0, link);
+    st.updateCardData(fromCardId, { kind: 'catalog', category: srcCard.data.category, title: srcCard.data.title, links: srcLinks });
+    return;
+  }
+  const dstLinks = dstCard.data.links.slice();
+  const i = Math.max(0, Math.min(index, dstLinks.length));
+  dstLinks.splice(i, 0, link);
+  st.updateCardData(fromCardId, { kind: 'catalog', category: srcCard.data.category, title: srcCard.data.title, links: srcLinks });
+  st.updateCardData(toCardId, { kind: 'catalog', category: dstCard.data.category, title: dstCard.data.title, links: dstLinks });
+}
+
+/**
+ * Перетаскивание ссылки за «рукоятку»: менять местами внутри списка,
+ * переносить между каталогами, выносить наружу — превращать в блок «Ссылка».
+ */
+function startCatalogLinkDrag(e: React.PointerEvent, link: CatalogLink, fromCardId: string) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+
+  const ghost = document.createElement('div');
+  ghost.textContent = link.title || (link.url ? link.url.replace(/^https?:\/\//, '') : 'Ссылка');
+  Object.assign(ghost.style, {
+    position: 'fixed',
+    zIndex: '10000',
+    maxWidth: '260px',
+    padding: '5px 10px',
+    fontSize: '12px',
+    fontWeight: '500',
+    color: 'var(--text-main)',
+    background: 'var(--card-bg)',
+    border: '1px solid var(--accent)',
+    borderRadius: '8px',
+    boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+    pointerEvents: 'none',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    left: `${e.clientX + 14}px`,
+    top: `${e.clientY + 10}px`,
+  } as Partial<CSSStyleDeclaration>);
+  document.body.append(ghost);
+
+  const line = document.createElement('div');
+  line.style.height = '3px';
+  line.style.width = '100%';
+  line.style.borderRadius = '2px';
+  line.style.background = 'var(--accent)';
+  line.style.margin = '1px 0';
+
+  const s: LinkDragSession = { link, fromCardId, ghost, line, startX: e.clientX, startY: e.clientY, moved: false };
+  linkDrag = s;
+
+  const move = (ev: PointerEvent) => {
+    ghost.style.left = `${ev.clientX + 14}px`;
+    ghost.style.top = `${ev.clientY + 10}px`;
+    if (!s.moved) {
+      if (Math.hypot(ev.clientX - s.startX, ev.clientY - s.startY) < 4) return;
+      s.moved = true;
+      useAppStore.getState().pushHistory();
+    }
+    const target = linkDropListAt(ev.clientX, ev.clientY);
+    if (target && line.parentElement !== target.list) {
+      detachLinkLine(line);
+      target.list.append(line);
+    } else if (!target) {
+      detachLinkLine(line);
+    }
+    if (target?.row) {
+      target.list.insertBefore(line, target.row);
+    } else if (target) {
+      target.list.append(line);
+    }
+  };
+
+  const up = (ev: PointerEvent) => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    window.removeEventListener('pointercancel', cancel);
+    detachLinkLine(line);
+    ghost.remove();
+    linkDrag = null;
+    if (!s.moved) return;
+
+    const st = useAppStore.getState();
+    const target = linkDropListAt(ev.clientX, ev.clientY);
+    if (target) {
+      // Индекс = число строк списка до места вставки, без собственной строки источника
+      const srcRow = target.list.querySelector(`[data-catalog-row][data-row-id="${s.link.id}"]`);
+      let index = 0;
+      for (const child of Array.from(target.list.children)) {
+        if (child === line) break;
+        if (!(child instanceof HTMLElement) || !child.dataset.rowId) continue;
+        if (child === srcRow) continue;
+        index++;
+      }
+      moveCatalogLink(s.link, s.fromCardId, target.cardId, index);
+      return;
+    }
+    // Вынос наружу: над пустым листом — превращаем в блок «Ссылка»
+    const overAnyCatalog = !!document.elementsFromPoint(ev.clientX, ev.clientY).find((el) => (el as Element).closest?.('[data-catalog-body]'));
+    if (!overAnyCatalog) {
+      const w = clientToWorld(ev.clientX, ev.clientY);
+      if (w) {
+        const id = st.addCard('link', w.x - 130, w.y - 40);
+        if (id) {
+          st.setSelection([id]);
+          st.updateCardData(id, {
+            kind: 'link',
+            url: s.link.url,
+            title: s.link.title || (s.link.url ? (() => { try { return new URL(s.link.url).hostname.replace(/^www\./, ''); } catch { return s.link.url; } })() : 'Ссылка'),
+            description: s.link.task ?? '',
+          });
+        }
+      }
+    }
+  };
+
+  const cancel = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    window.removeEventListener('pointercancel', cancel);
+    detachLinkLine(line);
+    ghost.remove();
+    linkDrag = null;
+  };
+
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+  window.addEventListener('pointercancel', cancel);
+}
+
+/** Сравнение названий: сначала русский алфавит, потом латиница */
+const azCollator = new Intl.Collator('ru');
+function isCyrillicStart(s: string): boolean {
+  return /[а-яё]/i.test(s.trim()[0] ?? '');
+}
+function azCompare(a: CatalogLink, b: CatalogLink, hostOf: (url: string) => string): number {
+  const ta = (a.title || hostOf(a.url) || '').toLowerCase();
+  const tb = (b.title || hostOf(b.url) || '').toLowerCase();
+  const ra = isCyrillicStart(ta);
+  const rb = isCyrillicStart(tb);
+  if (ra !== rb) return ra ? -1 : 1;
+  return azCollator.compare(ta, tb);
+}
+
 function CatalogBody({
   cardId,
   card,
@@ -2839,6 +3507,8 @@ function CatalogBody({
   const [editLinkId, setEditLinkId] = useState<string | null>(null);
   const [urlDraft, setUrlDraft] = useState('');
   const [titleDraft, setTitleDraft] = useState('');
+  const [taskDraft, setTaskDraft] = useState('');
+  const [sortAZ, setSortAZ] = useState(false);
   const urlRef = useRef<HTMLInputElement>(null);
 
   const patch = (
@@ -2866,6 +3536,7 @@ function CatalogBody({
     setEditLinkId(link.id);
     setUrlDraft(link.url);
     setTitleDraft(link.title);
+    setTaskDraft(link.task ?? '');
     setTimeout(() => urlRef.current?.focus(), 0);
   };
 
@@ -2875,12 +3546,14 @@ function CatalogBody({
     setEditLinkId(link.id);
     setUrlDraft('');
     setTitleDraft('');
+    setTaskDraft('');
     setTimeout(() => urlRef.current?.focus(), 0);
   };
 
   const saveLink = () => {
     let url = urlDraft.trim();
     const title = titleDraft.trim();
+    const task = taskDraft.trim();
     if (!url) {
 
       patch({ links: d.links.filter((l) => l.id !== editLinkId) }, true);
@@ -2890,7 +3563,7 @@ function CatalogBody({
     if (!/^https?:\/\//.test(url)) url = 'https://' + url;
     const host = hostOf(url);
     patch(
-      { links: d.links.map((l) => (l.id === editLinkId ? { ...l, url, title: title || host } : l)) },
+      { links: d.links.map((l) => (l.id === editLinkId ? { ...l, url, title: title || host, task } : l)) },
       true
     );
     setEditLinkId(null);
@@ -2903,7 +3576,8 @@ function CatalogBody({
 
   return (
     <div
-      className="w-full p-[10px]"
+      data-catalog-body={cardId}
+      className="flex w-full flex-1 flex-col p-[10px]"
       style={{
         background: 'var(--card-bg)',
         border: '1px solid var(--card-border)',
@@ -2941,6 +3615,28 @@ function CatalogBody({
             </button>
           );
         })}
+        <button
+          data-nodrag
+          aria-label="Расположить по алфавиту"
+          title="По алфавиту: сначала русский, потом латиница"
+          className="ml-auto rounded-full px-2 py-[2px] transition-colors"
+          style={{
+            fontSize: 10.5,
+            lineHeight: 1.4,
+            fontWeight: sortAZ ? 600 : 400,
+            background: sortAZ ? 'var(--accent-soft)' : 'var(--chip-bg)',
+            color: sortAZ ? 'var(--accent-strong)' : 'var(--text-muted)',
+            border: `1px solid ${sortAZ ? 'transparent' : 'var(--chip-border)'}`,
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            setSortAZ((v) => !v);
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
+          А-Я
+        </button>
       </div>
 
       {}
@@ -2963,8 +3659,8 @@ function CatalogBody({
       <div className="mt-1.5 mb-1 h-px w-full" style={{ background: 'var(--card-border)' }} />
 
       {}
-      <div className="flex flex-col gap-[2px]">
-        {d.links.map((link) =>
+      <div className="flex flex-col gap-[2px]" data-catalog-list={cardId}>
+        {(sortAZ ? [...d.links].sort((a, b) => azCompare(a, b, hostOf)) : d.links).map((link) =>
           editLinkId === link.id ? (
             <div key={link.id} className="flex flex-col gap-1 rounded px-1 py-1" style={{ background: 'var(--chip-bg)' }}>
               <input
@@ -2992,6 +3688,23 @@ function CatalogBody({
                 placeholder="Название ссылки"
                 value={titleDraft}
                 onChange={(e) => setTitleDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    saveLink();
+                  } else if (e.key === 'Escape') {
+                    setEditLinkId(null);
+                  }
+                }}
+              />
+              <input
+                data-nodrag
+                className="w-full rounded border px-2 py-1 outline-none focus:border-[var(--accent)]"
+                style={{ borderColor: 'var(--card-border)', fontSize: 12, color: 'var(--text-main)', background: 'transparent' }}
+                placeholder="Задача — зачем ссылка, что с ней делать"
+                value={taskDraft}
+                onChange={(e) => setTaskDraft(e.target.value)}
                 onKeyDown={(e) => {
                   e.stopPropagation();
                   if (e.key === 'Enter') {
@@ -3030,22 +3743,45 @@ function CatalogBody({
               </div>
             </div>
           ) : (
-            <div key={link.id} className="group/link flex items-center gap-2 rounded px-1 py-[3px] hover:bg-[var(--hover-bg)]" data-catalog-row>
-              <Link2 size={13} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+            <div key={link.id} className="group/link flex items-start gap-2 rounded px-1 py-[3px] hover:bg-[var(--hover-bg)]" data-catalog-row data-row-id={link.id}>
+              <span
+                data-nodrag
+                aria-label="Перетащить ссылку"
+                title="Перетащить: поменять порядок, перенести в другой каталог или вынести как блок «Ссылка»"
+                className="mt-[1px] flex h-[18px] w-[12px] shrink-0 cursor-grab items-center justify-center opacity-40 transition-opacity group-hover/link:opacity-100"
+                onPointerDown={(e) => startCatalogLinkDrag(e, link, cardId)}
+                onClick={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
+              >
+                <GripHorizontal size={12} style={{ color: 'var(--text-muted)' }} />
+              </span>
+              <Link2 size={13} style={{ color: 'var(--text-muted)', flexShrink: 0, marginTop: 2 }} />
               <div className="min-w-0 flex-1">
                 <div
-                  className="truncate"
+                  className="whitespace-pre-wrap break-words"
                   style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--text-main)', lineHeight: 1.35 }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
-                    if (link.url) window.open(link.url, '_blank', 'noopener');
+                    if (link.url) openLinkAfterConfirm(link.url);
                   }}
                 >
                   {link.title || (link.url ? hostOf(link.url) : 'Без названия')}
                 </div>
                 {link.url ? (
-                  <div className="truncate" style={{ fontSize: 10.5, color: 'var(--text-faint)', lineHeight: 1.3 }}>
+                  <div
+                    className="break-all"
+                    style={{ fontSize: 11.5, fontWeight: 500, color: 'var(--text-secondary)', lineHeight: 1.35 }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      openLinkAfterConfirm(link.url);
+                    }}
+                  >
                     {link.url.replace(/^https?:\/\//, '')}
+                  </div>
+                ) : null}
+                {link.task ? (
+                  <div className="break-words" style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.35 }}>
+                    {link.task}
                   </div>
                 ) : null}
               </div>

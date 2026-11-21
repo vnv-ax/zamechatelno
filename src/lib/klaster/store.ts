@@ -16,7 +16,7 @@ import type {
   DrawStroke,
   Viewport,
 } from './types';
-import { cardDefaultSize, measuredSizes, DRAW_WIDTH } from './types';
+import { cardDefaultSize, measuredSizes, DRAW_WIDTH, DRAW_STYLES } from './types';
 import type { DrawStyle } from './types';
 
 const ARROW_ORDER: ConnectionArrow[] = ['end', 'start', 'both', 'none'];
@@ -56,7 +56,7 @@ export type FontId =
   | 'shantell';
 
 export const DEFAULT_FONT: FontId = 'jbmono';
-export const DEFAULT_THEME: ThemeId = 'stylish';
+export const DEFAULT_THEME: ThemeId = 'academic';
 
 /** Кегль текста в блоках: множитель к базовому размеру (1 = обычный). */
 export const DEFAULT_CONTENT_SCALE = 1;
@@ -66,6 +66,15 @@ export const CONTENT_SCALE_MAX = 1.6;
 export function clampContentScale(v: number): number {
   if (!Number.isFinite(v)) return DEFAULT_CONTENT_SCALE;
   return Math.min(CONTENT_SCALE_MAX, Math.max(CONTENT_SCALE_MIN, v));
+}
+
+/** Микс «Простенькой» из сохранённых данных: только валидные id тем, иначе null. */
+function sanitizeSimpleMix(raw: unknown): SimpleMix | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as { canvas?: unknown; cards?: unknown; accent?: unknown };
+  const pick = (v: unknown): ThemeId | null => (isThemeId(v) ? v : null);
+  const mix: SimpleMix = { canvas: pick(r.canvas), cards: pick(r.cards), accent: pick(r.accent) };
+  return mix.canvas || mix.cards || mix.accent ? mix : null;
 }
 
 let themeBootTimer: ReturnType<typeof setTimeout> | null = null;
@@ -84,8 +93,24 @@ function applyThemeToDom(theme: ThemeId) {
   if (typeof document !== 'undefined') document.documentElement.dataset.theme = theme;
 }
 
-function applyPlainBgToDom(plain: boolean) {
-  if (typeof document !== 'undefined') document.documentElement.dataset.plainBg = plain ? 'true' : 'false';
+/** Микс «Простенькой»: из какой темы берём фон, карточки и акцент. */
+export interface SimpleMix {
+  canvas: ThemeId | null;
+  cards: ThemeId | null;
+  accent: ThemeId | null;
+}
+
+function applySimpleMixToDom(theme: ThemeId, mix: SimpleMix | null) {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  const on = theme === 'simple' || theme === 'simple-dark';
+  const set = (key: 'canvasTheme' | 'cardsTheme' | 'accentTheme', v: ThemeId | null | undefined) => {
+    if (on && v) root.dataset[key] = v;
+    else delete root.dataset[key];
+  };
+  set('canvasTheme', mix?.canvas);
+  set('cardsTheme', mix?.cards);
+  set('accentTheme', mix?.accent);
 }
 
 interface HistorySnapshot {
@@ -142,6 +167,9 @@ interface AppState {
   searchOpen: boolean;
   shortcutsOpen: boolean;
   exportOpen: boolean;
+  /** Активный tiptap-редактор текстовой карточки (для панели форматирования в верхнем баре) */
+  rteEditor: unknown;
+  setRteEditor: (e: unknown) => void;
 
   /** фильтр подсветки по состоянию блока */
   statusFilter: CardStatus | null;
@@ -158,8 +186,8 @@ interface AppState {
 
   font: FontId;
   theme: ThemeId;
-  /** однотонный фон вместо паттерна темы */
-  plainBg: boolean;
+  /** микс «Простенькой»: из каких тем собраны фон, карточки и акцент */
+  simpleMix: SimpleMix | null;
   /** кегль текста в блоках (множитель к базовому размеру) */
   contentScale: number;
 
@@ -173,7 +201,7 @@ interface AppState {
   persist: () => void;
   setFont: (font: FontId) => void;
   setTheme: (theme: ThemeId) => void;
-  togglePlainBg: () => void;
+  setSimpleMix: (mix: SimpleMix | null) => void;
   setContentScale: (scale: number) => void;
 
   setView: (view: 'home' | 'board') => void;
@@ -207,6 +235,8 @@ interface AppState {
 
   setCardMeta: (cardId: string, patch: CardMetaPatch) => void;
   moveCards: (ids: string[], dx: number, dy: number) => void;
+  /** Выровнять выделенные карточки (как в milanote: Alt+W/A/S/D/H/V) */
+  alignSelection: (side: 'top' | 'left' | 'bottom' | 'right' | 'vcenter' | 'hcenter' | 'dist-h' | 'dist-v') => void;
   resizeCard: (cardId: string, w: number, h: number) => void;
   setCardSize: (cardId: string, w: number, h: number) => void;
   deleteCards: (ids: string[]) => void;
@@ -235,6 +265,10 @@ interface AppState {
   deleteConnection: (connectionId: string) => void;
   cycleConnectionArrow: (connectionId: string) => void;
   setConnectionArrow: (connectionId: string, arrow: ConnectionArrow) => void;
+  /** Изогнуть стрелку: точка на кривой (мировые координаты) */
+  setConnectionControlPoint: (connectionId: string, pt: { x: number; y: number } | null) => void;
+  /** Подпись на линии связи */
+  setConnectionLabel: (connectionId: string, label: string | null) => void;
   setBoardTag: (ids: string[], label: string | null) => void;
   setConnecting: (connecting: { from: string; x: number; y: number } | null) => void;
 
@@ -271,7 +305,7 @@ type PersistShape = {
   viewports: Record<string, Viewport>;
   font?: FontId;
   theme?: ThemeId;
-  plainBg?: boolean;
+  simpleMix?: SimpleMix | null;
   contentScale?: number;
   drawTool?: DrawTool;
   calendarTasks?: CalendarTask[];
@@ -286,18 +320,32 @@ function saveToStorage(s: AppState) {
       viewports: s.viewports,
       font: s.font,
       theme: s.theme,
-      plainBg: s.plainBg,
+      simpleMix: s.simpleMix,
       contentScale: s.contentScale,
       drawTool: s.drawTool,
       calendarTasks: s.calendarTasks,
     };
     const json = JSON.stringify(payload);
     if (hostAvailable()) {
-      // Обёртка шифрует и пишет в папку приложения — квот нет
-      void hostCall('save', json).catch(() => {});
+      // Обёртка шифрует и пишет в папку приложения — квот нет.
+      // Оффлайн-очередь (по мотивам kinopio useApiStore): при сбое записи —
+      // экспоненциальный retry с джиттером, до успешной записи.
+      hostCall('save', json)
+        .then(() => {
+          saveFailureCount = 0;
+        })
+        .catch(() => {
+          saveFailureCount++;
+          const delay = Math.min(30000, 2 ** saveFailureCount * 1000);
+          const jitter = delay / 2 + Math.random() * (delay / 2);
+          if (saveRetryTimer) clearTimeout(saveRetryTimer);
+          saveRetryTimer = setTimeout(() => saveToStorage(useAppStore.getState()), jitter);
+          toast({ title: 'Не удаётся записать данные — пробую ещё раз', description: 'Ничего не потеряется: повтор сохранения через пару секунд.' });
+        });
       return;
     }
     localStorage.setItem(STORAGE_KEY, json);
+    saveFailureCount = 0;
   } catch {
 
     if (!quotaWarned) {
@@ -312,16 +360,30 @@ function saveToStorage(s: AppState) {
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let saveFailureCount = 0;
+let saveRetryTimer: ReturnType<typeof setTimeout> | null = null;
 function scheduleSave(get: () => AppState) {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => saveToStorage(get()), 350);
 }
 
 /**
- * Тип анимации перехода между экранами: единая Bokeh Dissolve для всех переходов и тем.
+ * Анимация перехода между экранами — своя у каждой темы.
  */
-function viewTransitionKind(): ViewTransitionKind {
-  return 'bokeh';
+function viewTransitionKind(theme: ThemeId): ViewTransitionKind {
+  switch (theme) {
+    case 'academic': return 'iris';
+    case 'academic-light': return 'paper';
+    case 'shaomi': return 'pop';
+    case 'shaomi-dark': return 'ember';
+    case 'miuay': return 'swoosh';
+    case 'miuay-dark': return 'ion';
+    case 'lin': return 'term';
+    case 'lin-dark': return 'scan';
+    case 'simple':
+    case 'simple-dark': return 'plain';
+    default: return 'bokeh'; // «Кинопио» и остальные
+  }
 }
 
 function clone<T>(v: T): T {
@@ -557,7 +619,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     contextMenu: null,
     drawMode: false,
     drawCancelled: false,
-    drawTool: { width: DRAW_WIDTH, style: 'pen', color: null },
+    drawTool: { width: DRAW_WIDTH, style: 'ink', color: null },
     statusFilter: null,
     tagFilter: null,
     commentsOpenIds: [],
@@ -567,9 +629,10 @@ export const useAppStore = create<AppState>()((set, get) => {
     searchOpen: false,
     shortcutsOpen: false,
     exportOpen: false,
+    rteEditor: null,
     font: DEFAULT_FONT,
     theme: DEFAULT_THEME,
-    plainBg: false,
+    simpleMix: null,
     contentScale: DEFAULT_CONTENT_SCALE,
     themeBoot: false,
     layoutTick: 0,
@@ -590,7 +653,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 viewports: data.viewports ?? {},
                 font: data.font ?? DEFAULT_FONT,
                 theme: isThemeId(data.theme) ? data.theme : DEFAULT_THEME,
-                plainBg: data.plainBg === true,
+                simpleMix: sanitizeSimpleMix(data.simpleMix),
                 contentScale: clampContentScale(data.contentScale ?? DEFAULT_CONTENT_SCALE),
                 drawTool: sanitizeTool(data.drawTool),
                 calendarTasks: Array.isArray(data.calendarTasks) ? data.calendarTasks : [],
@@ -598,7 +661,7 @@ export const useAppStore = create<AppState>()((set, get) => {
               });
               applyFontToDom(get().font);
               applyThemeToDom(get().theme);
-              applyPlainBgToDom(get().plainBg);
+              applySimpleMixToDom(get().theme, get().simpleMix);
               applyContentScaleToDom(get().contentScale);
               scheduleSave(get);
               return;
@@ -608,7 +671,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         }
         applyFontToDom(DEFAULT_FONT);
         applyThemeToDom(DEFAULT_THEME);
-        applyPlainBgToDom(false);
+        applySimpleMixToDom(DEFAULT_THEME, null);
         applyContentScaleToDom(DEFAULT_CONTENT_SCALE);
         const seed = createSeed();
         set({
@@ -653,13 +716,10 @@ export const useAppStore = create<AppState>()((set, get) => {
     setTheme: (theme) => {
       if (theme === get().theme) return;
 
-      if ((theme === 'stylish' || theme === 'stylish-dark') && get().font === DEFAULT_FONT) {
-        set({ font: 'inter' });
-        applyFontToDom('inter');
-      }
-
       set({ theme, themeBoot: true });
       applyThemeToDom(theme);
+      // микс живёт только в «Простенькой»; при смене темы оверрайды снимаются
+      applySimpleMixToDom(theme, get().simpleMix);
       get().bumpLayout();
       if (themeBootTimer) clearTimeout(themeBootTimer);
       themeBootTimer = setTimeout(() => {
@@ -669,16 +729,18 @@ export const useAppStore = create<AppState>()((set, get) => {
       scheduleSave(get);
     },
 
-    togglePlainBg: () => {
-      const plainBg = !get().plainBg;
-      set({ plainBg });
-      applyPlainBgToDom(plainBg);
+    setSimpleMix: (mix) => {
+      const m: SimpleMix | null = mix && (mix.canvas || mix.cards || mix.accent)
+        ? { canvas: mix.canvas ?? null, cards: mix.cards ?? null, accent: mix.accent ?? null }
+        : null;
+      set({ simpleMix: m });
+      applySimpleMixToDom(get().theme, m);
       scheduleSave(get);
     },
 
     setView: (view) => {
       if (view === get().view) return;
-      runViewTransition(viewTransitionKind(), () => {
+      runViewTransition(viewTransitionKind(get().theme), () => {
         set({ view, editingId: null, contextMenu: null, drawMode: false });
       });
       scheduleSave(get);
@@ -686,7 +748,7 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     openBoardRoot: (boardId) => {
       if (!get().boards[boardId]) return;
-      runViewTransition(viewTransitionKind(), () => {
+      runViewTransition(viewTransitionKind(get().theme), () => {
         set({ view: 'board', breadcrumb: [boardId], selection: [], editingId: null, contextMenu: null, drawMode: false });
       });
       scheduleSave(get);
@@ -694,7 +756,7 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     openSubBoard: (boardId) => {
       if (!get().boards[boardId]) return;
-      runViewTransition(viewTransitionKind(), () => {
+      runViewTransition(viewTransitionKind(get().theme), () => {
         set((s) => ({
           view: 'board',
           breadcrumb: [...s.breadcrumb, boardId],
@@ -710,7 +772,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     navigateTo: (depth) => {
       const nextDepth = Math.max(1, depth + 1);
       if (nextDepth === get().breadcrumb.length) return;
-      runViewTransition(viewTransitionKind(), () => {
+      runViewTransition(viewTransitionKind(get().theme), () => {
         set((s) => {
           const bc = s.breadcrumb.slice(0, Math.max(1, depth + 1));
           return { breadcrumb: bc, selection: [], editingId: null, contextMenu: null, drawMode: false };
@@ -887,7 +949,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         if (!b) return s;
         const idx = b.cards.findIndex((c) => c.id === cardId);
         if (idx < 0) return s;
-        const newCard = { ...b.cards[idx], data };
+        const newCard = { ...b.cards[idx], data, type: data.kind };
         const nb = {
           ...b,
           cards: b.cards.map((c, i) => (i === idx ? newCard : c)),
@@ -912,6 +974,61 @@ export const useAppStore = create<AppState>()((set, get) => {
         if (card.locked === false) delete card.locked;
         if (card.icon === '') delete card.icon;
       });
+    },
+
+    alignSelection: (side) => {
+      const boardId = currentBoardId();
+      if (!boardId) return;
+      const s = get();
+      const board = s.boards[boardId];
+      if (!board) return;
+      const sel = board.cards.filter(
+        (c) => s.selection.includes(c.id) && !c.locked && c.data.kind !== 'column'
+      );
+      if (sel.length < 2) return;
+      const hOf = (c: Card) => measuredSizes.get(c.id)?.h ?? c.h;
+      const minX = Math.min(...sel.map((c) => c.x));
+      const maxX = Math.max(...sel.map((c) => c.x + c.w));
+      const minY = Math.min(...sel.map((c) => c.y));
+      const maxY = Math.max(...sel.map((c) => c.y + hOf(c)));
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+      get().pushHistory();
+      if (side === 'dist-h' || side === 'dist-v') {
+        // Равномерное распределение (как в kinopio, AlignAndDistribute):
+        // суммарный «лишний» зазор делится поровну между карточками
+        const horizontal = side === 'dist-h';
+        const sorted = sel.slice().sort((a, b) => (horizontal ? a.x - b.x : a.y - b.y));
+        const sizes = sorted.map((c) => (horizontal ? c.w : hOf(c)));
+        const totalSize = sizes.reduce((a, b) => a + b, 0);
+        const spanStart = horizontal ? Math.min(...sorted.map((c) => c.x)) : Math.min(...sorted.map((c) => c.y));
+        const spanEnd = horizontal ? Math.max(...sorted.map((c) => c.x + c.w)) : Math.max(...sorted.map((c) => c.y + hOf(c)));
+        const gap = sorted.length > 1 ? (spanEnd - spanStart - totalSize) / (sorted.length - 1) : 0;
+        let cursor = spanStart;
+        for (let i = 0; i < sorted.length; i++) {
+          const c = sorted[i];
+          const target = cursor;
+          const dx = horizontal ? target - c.x : 0;
+          const dy = horizontal ? 0 : target - c.y;
+          if (dx || dy) get().moveCards([c.id], dx, dy);
+          cursor = target + sizes[i] + gap;
+        }
+        return;
+      }
+      for (const c of sel) {
+        const h = hOf(c);
+        const dx =
+          side === 'left' ? minX - c.x
+          : side === 'right' ? maxX - (c.x + c.w)
+          : side === 'hcenter' ? centerX - (c.x + c.w / 2)
+          : 0;
+        const dy =
+          side === 'top' ? minY - c.y
+          : side === 'bottom' ? maxY - (c.y + h)
+          : side === 'vcenter' ? centerY - (c.y + h / 2)
+          : 0;
+        if (dx || dy) get().moveCards([c.id], dx, dy);
+      }
     },
 
     moveCards: (ids, dx, dy) => {
@@ -1354,7 +1471,7 @@ export const useAppStore = create<AppState>()((set, get) => {
       if (!boardId || from === to) return;
       const board = get().boards[boardId];
       if (!board) return;
-      if (board.connections.some((cn) => (cn.from === from && cn.to === to) || (cn.from === to && cn.to === from))) return;
+      // Связей между одними и теми же блоками может быть сколько угодно
       get().pushHistory();
       mutBoard(boardId, (b) => {
         b.connections = [...b.connections, { id: uid(), from, to }];
@@ -1390,6 +1507,23 @@ export const useAppStore = create<AppState>()((set, get) => {
       });
     },
 
+    setConnectionControlPoint: (connectionId, pt) => {
+      const boardId = currentBoardId();
+      if (!boardId) return;
+      mutBoard(boardId, (b) => {
+        b.connections = b.connections.map((cn) => (cn.id === connectionId ? { ...cn, controlPoint: pt } : cn));
+      });
+    },
+
+    setConnectionLabel: (connectionId, label) => {
+      const boardId = currentBoardId();
+      if (!boardId) return;
+      get().pushHistory();
+      mutBoard(boardId, (b) => {
+        b.connections = b.connections.map((cn) => (cn.id === connectionId ? { ...cn, label } : cn));
+      });
+    },
+
     setBoardTag: (ids, label) => {
       const boardId = currentBoardId();
       if (!boardId || !ids.length) return;
@@ -1411,14 +1545,28 @@ export const useAppStore = create<AppState>()((set, get) => {
     setConnecting: (connecting) => set({ connecting }),
     setDragNewType: (t) => set({ dragNewType: t }),
     setDragging: (dragging) => set({ dragging }),
-    setDropPreview: (p) => set({ dropPreview: p }),
+    setDropPreview: (p) =>
+      set((s) => {
+        const prev = s.dropPreview;
+        // обновлять store только при реальном изменении цели (иначе кадр за кадром)
+        if (
+          (!!prev === !!p) &&
+          (!p || (prev!.cardId === p.cardId && prev!.columnId === p.columnId && prev!.index === p.index))
+        ) return s;
+        return { dropPreview: p };
+      }),
     setExtractGhost: (g) => set({ extractGhost: g }),
     openContextMenu: (m) => set({ contextMenu: m }),
     setDrawMode: (on) =>
       set(on ? { drawMode: true, drawCancelled: false, selection: [] } : { drawMode: false, drawCancelled: false }),
     cancelDrawMode: () => set({ drawMode: false, drawCancelled: true }),
     setDrawTool: (patch) =>
-      set((s) => ({ drawTool: { ...s.drawTool, ...patch } })),
+      set((s) => {
+        const tool = { ...s.drawTool, ...patch };
+        // кисть могла перестать быть доступной — возвращаем к доступной
+        if (!DRAW_STYLES.includes(tool.style)) tool.style = 'brush';
+        return { drawTool: tool };
+      }),
     setSearchOpen: (open) => set({ searchOpen: open }),
     setStatusFilter: (f) => set({ statusFilter: f }),
     setTagFilter: (t) => set({ tagFilter: t }),
@@ -1485,6 +1633,7 @@ export const useAppStore = create<AppState>()((set, get) => {
       scheduleSave(get);
     },
     setShortcutsOpen: (open) => set({ shortcutsOpen: open }),
+    setRteEditor: (e) => set({ rteEditor: e }),
     setExportOpen: (open) => set({ exportOpen: open }),
   };
 });

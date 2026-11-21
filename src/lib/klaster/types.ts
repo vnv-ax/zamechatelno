@@ -17,7 +17,17 @@ export type CardType =
 
 export type ShapeKind = 'circle' | 'square' | 'triangle' | 'star';
 
-export type DrawStyle = 'pen' | 'brush' | 'edge' | 'marker';
+export type DrawStyle =
+  | 'pen'
+  | 'brush'
+  | 'edge'
+  | 'marker'
+  // новые кисти (движок perfect-freehand, как в milanote)
+  | 'ink'
+  | 'pencil'
+  | 'calligraphy'
+  | 'neon'
+  | 'crayon';
 
 export interface DrawStroke {
   width: number;
@@ -25,6 +35,8 @@ export interface DrawStroke {
   color?: string | null;
   points: number[];
   pressures?: number[];
+  /** Запечённый рендер штриха (SVG-слои) — не пересчитывается при показе */
+  baked?: string;
 }
 
 export type CatalogCategory = 'theme' | 'tool' | 'direction' | 'sphere';
@@ -33,6 +45,8 @@ export interface CatalogLink {
   id: string;
   url: string;
   title: string;
+  /** Задача ссылки: зачем она, что с ней делать (показывается в каталоге, если заполнена) */
+  task?: string;
 }
 
 export type NoteColor =
@@ -152,6 +166,10 @@ export interface Connection {
   from: string;
   to: string;
   arrow?: ConnectionArrow;
+  /** Точка на кривой (мировые координаты): потянув за неё, стрелку можно изогнуть */
+  controlPoint?: { x: number; y: number } | null;
+  /** Подпись на линии */
+  label?: string | null;
 }
 
 export interface TagSpec {
@@ -285,13 +303,18 @@ export function cardDisplayName(card: Card, boards?: Record<string, Board>): str
 export const DRAW_SIZES: number[] = [2, 4, 7, 12];
 export const DRAW_WIDTH = 4;
 
-export const DRAW_STYLES: DrawStyle[] = ['pen', 'brush', 'edge', 'marker'];
+export const DRAW_STYLES: DrawStyle[] = ['brush', 'calligraphy', 'edge'];
 
 export const DRAW_STYLE_META: Record<DrawStyle, { label: string; desc: string }> = {
-  pen: { label: 'Графитовый карандаш', desc: 'тонкая зернистая линия с лёгким двойным графитовым следом' },
-  brush: { label: 'Динамическая кисть', desc: 'широкий штрих с сужением; медленнее ведёте — плотнее линия' },
-  edge: { label: 'Скошенное перо', desc: 'широкие и тонкие участки зависят от угла пера в 45°' },
-  marker: { label: 'Маркер', desc: 'широкий полупрозрачный штрих с ровными срезанными краями' },
+  pencil: { label: 'Карандаш', desc: 'тонкая светлая линия с зернистым следом' },
+  ink: { label: 'Чернила', desc: 'уверенная ровная линия с переменной толщиной от скорости' },
+  brush: { label: 'Кисть', desc: 'живой штрих: широкий, с напором и мягким началом' },
+  calligraphy: { label: 'Перо', desc: 'каллиграфический штрих — острые концы, контрастная толщина' },
+  marker: { label: 'Маркер', desc: 'широкий полупрозрачный след с ровными краями' },
+  crayon: { label: 'Мел', desc: 'шершавая зернистая линия, как восковой мелок' },
+  neon: { label: 'Неон', desc: 'светящаяся линия с мягким ореолом' },
+  pen: { label: 'Графит (старый)', desc: 'старый штрих — двойной графитовый след' },
+  edge: { label: 'Скошенное перо', desc: 'угловые широкие и тонкие участки — перо в 45°' },
 };
 
 export interface DrawColorSpec {

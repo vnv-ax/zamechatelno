@@ -10,8 +10,9 @@ import { ContextMenuHost } from './ContextMenu';
 import { DragGhost } from './DragGhost';
 import { ExportDialog, SearchDialog, ShortcutsDialog } from './Dialogs';
 import { BottomInfoPanel } from './BottomInfoPanel';
-import { fitView, zoomTo } from './Canvas';
+import { fitView, zoomTo, drawingDraft, confirmDiscardDrawing } from './Canvas';
 import { ThemeSplash } from './ThemeSplash';
+import { AltF4Hint } from './AltF4Hint';
 
 const SPLASH_MIN_MS = 0;
 
@@ -81,7 +82,16 @@ export default function App() {
         else if (st.searchOpen) st.setSearchOpen(false);
         else if (st.shortcutsOpen) st.setShortcutsOpen(false);
         else if (st.exportOpen) st.setExportOpen(false);
-        else if (st.drawMode) st.cancelDrawMode();
+        else if (st.drawMode) {
+          // В режиме рисования Escape спрашивает, прежде чем стереть черновик
+          void (async () => {
+            if (drawingDraft.count > 0) {
+              const discard = await confirmDiscardDrawing();
+              if (!discard) return;
+            }
+            useAppStore.getState().cancelDrawMode();
+          })();
+        }
         else if (st.editingId) st.setEditing(null);
         else st.clearSelection();
         return;
@@ -201,6 +211,7 @@ export default function App() {
       {loaded && (
         <>
           {view === 'board' ? <BoardEditor key={theme} /> : <HomeView key={theme} />}
+          <AltF4Hint />
           <DragGhost />
           <ContextMenuHost />
           <SearchDialog />

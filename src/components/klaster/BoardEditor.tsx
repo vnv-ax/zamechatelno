@@ -4,8 +4,7 @@
 
 import { useAppStore } from '@/lib/klaster/store';
 import { Canvas } from './Canvas';
-import { Topbar } from './Topbar';
-import { ZoomBar } from './ZoomBar';
+import { BottomBar } from './BottomBar';
 
 export function BoardEditor() {
   const breadcrumb = useAppStore((s) => s.breadcrumb);
@@ -14,10 +13,9 @@ export function BoardEditor() {
 
   return (
     <div className="flex h-screen min-h-0 flex-col bg-[var(--canvas-bg)]">
-      <Topbar boardId={boardId} />
       <div className="relative min-h-0 flex-1">
         <Canvas boardId={boardId} />
-        <ZoomBar boardId={boardId} />
+        <BottomBar boardId={boardId} />
       </div>
     </div>
   );

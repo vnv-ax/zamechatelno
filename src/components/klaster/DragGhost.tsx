@@ -108,13 +108,13 @@ export function DragGhost() {
   if (!type || !LABELS[type]) return null;
   const meta = LABELS[type];
 
+  // без пузыря — только иконка того, что тащишь
   return (
     <div
-      className="pointer-events-none fixed z-[90] flex items-center gap-2 rounded-md border border-[var(--accent)] bg-[var(--panel-bg)] px-3 py-2 text-[12.5px] font-medium text-[var(--text-main)] shadow-[var(--menu-shadow)]"
+      className="pointer-events-none fixed z-[90] text-[var(--accent-strong)]"
       style={{ left: pos.x + 12, top: pos.y + 10 }}
     >
-      <span className="text-[var(--accent-strong)]">{meta.icon}</span>
-      {meta.label}
+      {meta.icon}
     </div>
   );
 }

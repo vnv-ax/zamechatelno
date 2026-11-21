@@ -2,6 +2,7 @@
 
 'use client';
 
+import { useMemo } from 'react';
 import type { DrawStyle } from './types';
 
 export interface StrokeRender {
@@ -130,10 +131,161 @@ function filledStrokePath(
   return `${sidePath(left)} L ${rightStart.x} ${rightStart.y}${rightCommands} Z`;
 }
 
+// ============================================================
+// Движок штрихов на perfect-freehand (как в milanote)
+// ============================================================
+
+import { getStrokePoints, getStrokeOutlinePoints } from 'perfect-freehand';
+
+/** Пресеты кистей: параметры perfect-freehand + способ отрисовки */
+interface BrushPreset {
+  /** заполненный контур (true) или линия stroke-width (false) */
+  filled: boolean;
+  thinning: number;
+  smoothing: number;
+  streamline: number;
+  /** сужение концов штриха */
+  startTaper: number;
+  endTaper: number;
+  /** учитывать pressure из точек (иначе скорость имитируется сама) */
+  usePressure: boolean;
+  opacity: number;
+  /** множитель к ширине для stroke-only кистей */
+  widthScale: number;
+  dashArray?: string;
+  /** двойной слой (неон: ореол + сердцевина) */
+  glow?: boolean;
+}
+
+const BRUSHES: Partial<Record<DrawStyle, BrushPreset>> = {
+  // новые кисти
+  ink: { filled: false, thinning: 0, smoothing: 0.55, streamline: 0.5, startTaper: 0, endTaper: 0, usePressure: false, opacity: 0.92, widthScale: 0.55 },
+  pencil: { filled: false, thinning: 0, smoothing: 0.6, streamline: 0.6, startTaper: 0, endTaper: 0, usePressure: false, opacity: 0.7, widthScale: 0.38, dashArray: '1.5 2' },
+  brush: { filled: true, thinning: 0.6, smoothing: 0.5, streamline: 0.45, startTaper: 0, endTaper: 0, usePressure: true, opacity: 1, widthScale: 1 },
+  calligraphy: { filled: true, thinning: 0.78, smoothing: 0.4, streamline: 0.35, startTaper: 0, endTaper: 4, usePressure: true, opacity: 1, widthScale: 1 },
+  marker: { filled: true, thinning: 0, smoothing: 0.9, streamline: 0.7, startTaper: 0, endTaper: 0, usePressure: false, opacity: 0.34, widthScale: 2.6 },
+  crayon: { filled: false, thinning: 0, smoothing: 0.85, streamline: 0.75, startTaper: 0, endTaper: 0, usePressure: false, opacity: 0.85, widthScale: 0.9, dashArray: '2 2.6' },
+  neon: { filled: false, thinning: 0, smoothing: 0.7, streamline: 0.6, startTaper: 0, endTaper: 0, usePressure: false, opacity: 1, widthScale: 0.7, glow: true },
+  // легаси-«pen» рисуется новым stroke-only движком
+  pen: { filled: false, thinning: 0, smoothing: 0.55, streamline: 0.5, startTaper: 0, endTaper: 0, usePressure: false, opacity: 0.85, widthScale: 0.55 },
+};
+
+/** Контур perfect-freehand → SVG path */
+function outlineToPath(outline: number[][]): string {
+  if (!outline.length) return '';
+  const n = outline.length;
+  if (n < 3) {
+    const [x, y] = outline[0];
+    const r = Math.max(0.5, (outline[1] ? Math.hypot(outline[1][0] - x, outline[1][1] - y) : 1) / 2);
+    return `M ${x - r} ${y} a ${r} ${r} 0 1 0 ${r * 2} 0 a ${r} ${r} 0 1 0 ${-r * 2} 0`;
+  }
+  const cmds = [`M ${outline[0][0]} ${outline[0][1]}`];
+  for (let i = 1; i < n - 1; i++) {
+    const mx = (outline[i][0] + outline[i + 1][0]) / 2;
+    const my = (outline[i][1] + outline[i + 1][1]) / 2;
+    cmds.push(`Q ${outline[i][0]} ${outline[i][1]} ${mx} ${my}`);
+  }
+  const last = outline[n - 1];
+  cmds.push(`L ${last[0]} ${last[1]}`);
+  return cmds.join(' ') + ' Z';
+}
+
+function toPointsArray(points: number[], pressures: number[] | undefined, usePressure: boolean): number[][] {
+  const n = Math.floor(points.length / 2);
+  const out: number[][] = [];
+  for (let i = 0; i < n; i++) {
+    if (usePressure && pressures && pressures.length) {
+      out.push([points[i * 2], points[i * 2 + 1], Math.min(1, Math.max(0.05, pressures[i] ?? 0.5))]);
+    } else {
+      out.push([points[i * 2], points[i * 2 + 1]]);
+    }
+  }
+  return out;
+}
+
+/** Полилиния через квадратичные середины (для stroke-only кистей) */
+export { strokePathData };
+
+/** Новый рендер штриха. points — плоский массив [x,y,...], pressures — имитация скорости/давления */
 export function renderStroke(
   points: number[],
   width: number,
-  style: DrawStyle = 'pen',
+  style: DrawStyle = 'ink',
+  pressures?: number[],
+  last = false
+): StrokeRender {
+  const n = Math.floor(points.length / 2);
+  if (!n) return { kind: 'polyline', path: '', width, cap: 'round', opacity: 1 };
+
+  // Легаси-кисти: старые рисунки рисуются прежним алгоритмом
+  if (style === 'edge' || style === 'marker') {
+    return legacyRenderStroke(points, width, style, pressures);
+  }
+  if (style === 'pen') {
+    // «Графит (старый)»: прежний двойной след
+    return legacyRenderStroke(points, width, 'pen', pressures);
+  }
+
+  const preset = BRUSHES[style] as BrushPreset;
+  const size = width * preset.widthScale;
+
+  if (!preset.filled) {
+    // stroke-only: дешёвая линия
+    const path = strokePathData(points);
+    const layers: StrokeLayer[] = [];
+    if (preset.glow) {
+      // ореол
+      layers.push({
+        kind: 'polyline',
+        path,
+        width: size * 2.6,
+        cap: 'round',
+        opacity: 0.28,
+      });
+    }
+    layers.push({
+      kind: 'polyline',
+      path,
+      width: size,
+      cap: 'round',
+      opacity: preset.opacity,
+      dashArray: preset.dashArray,
+    });
+    return { kind: 'polyline', path, width: size, cap: 'round', opacity: preset.opacity, layers };
+  }
+
+  // заполненный контур perfect-freehand
+  const hasPressure = preset.usePressure && !!pressures?.length;
+  const pts = toPointsArray(points, pressures, preset.usePressure);
+  const strokePoints = getStrokePoints(pts, {
+    size,
+    thinning: preset.thinning,
+    smoothing: preset.smoothing,
+    streamline: preset.streamline,
+    start: { taper: preset.startTaper },
+    end: { taper: preset.endTaper, cap: true },
+    simulatePressure: !hasPressure && preset.usePressure ? true : !hasPressure,
+    last,
+  });
+  const outline = getStrokeOutlinePoints(strokePoints, {
+    size,
+    thinning: preset.thinning,
+    smoothing: preset.smoothing,
+    streamline: preset.streamline,
+    simulatePressure: !hasPressure && preset.usePressure ? true : !hasPressure,
+    start: { taper: preset.startTaper },
+    end: { taper: preset.endTaper, cap: true },
+    last,
+  });
+  const path = outlineToPath(outline);
+  return { kind: 'filled', path, opacity: preset.opacity };
+}
+
+/** Старый алгоритм (pen/brush/edge/marker) — для рисунков, созданных до нового движка */
+function legacyRenderStroke(
+  points: number[],
+  width: number,
+  style: 'pen' | 'brush' | 'edge' | 'marker',
   pressures?: number[]
 ): StrokeRender {
   const n = Math.floor(points.length / 2);
@@ -154,43 +306,54 @@ export function renderStroke(
       opacity: 0.34,
     };
   }
-  if (style === 'pen') {
-    return {
-      kind: 'polyline',
-      path: strokePathData(points),
-      width: Math.max(0.8, width * 0.56),
-      cap: 'round',
-      opacity: 0.8,
-      layers: [
-        {
-          kind: 'polyline',
-          path: strokePathData(offsetPoints(points, width * 0.22)),
-          width: Math.max(0.35, width * 0.18),
-          cap: 'round',
-          opacity: 0.38,
-          dashArray: `${Math.max(0.6, width * 0.28)} ${Math.max(1.1, width * 0.72)}`,
-        },
-      ],
-    };
-  }
-  return { kind: 'polyline', path: strokePathData(points), width, cap: 'round', opacity: 1 };
+  // pen
+  return {
+    kind: 'polyline',
+    path: strokePathData(points),
+    width: Math.max(0.8, width * 0.56),
+    cap: 'round',
+    opacity: 0.8,
+    layers: [
+      {
+        kind: 'polyline',
+        path: strokePathData(offsetPoints(points, width * 0.22)),
+        width: Math.max(0.35, width * 0.18),
+        cap: 'round',
+        opacity: 0.38,
+        dashArray: `${Math.max(0.6, width * 0.28)} ${Math.max(1.1, width * 0.72)}`,
+      },
+    ],
+  };
 }
 
 export function StrokeShape({
   points,
   width,
-  style = 'pen',
+  style = 'ink',
   color,
   pressures,
+  baked,
 }: {
   points: number[];
   width: number;
   style?: DrawStyle;
   color: string;
   pressures?: number[];
+  /** запечённый StrokeRender (JSON) — рисуется без пересчёта */
+  baked?: string;
 }) {
-  const r = renderStroke(points, width, style, pressures);
-  if (!r.path) return null;
+  const r: StrokeRender | null = useMemo(() => {
+    if (baked) {
+      try {
+        return JSON.parse(baked) as StrokeRender;
+      } catch {
+        return null;
+      }
+    }
+    return renderStroke(points, width, style, pressures);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baked, points.join(','), width, style, color]);
+  if (!r || !r.path) return null;
   return (
     <>
       {[r, ...(r.layers ?? [])].map((layer, index) =>
@@ -213,3 +376,4 @@ export function StrokeShape({
     </>
   );
 }
+

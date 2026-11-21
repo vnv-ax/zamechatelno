@@ -12,6 +12,7 @@ import {
 import type { DrawStyle } from '@/lib/klaster/types';
 import { Hint } from './Hint';
 import { StrokeShape } from '@/lib/klaster/stroke';
+import { confirmDiscardDrawing, drawingDraft } from './Canvas';
 
 const SIZE_LABELS = ['Тонкий', 'Обычный', 'Толстый', 'Очень толстый'];
 
@@ -122,7 +123,13 @@ export function DrawPanel({ boardId }: { boardId: string }) {
             <div className="draw-panel-actions">
               <button
                 className="draw-session-btn"
-                onClick={() => useAppStore.getState().cancelDrawMode()}
+                onClick={async () => {
+                  if (drawingDraft.count > 0) {
+                    const discard = await confirmDiscardDrawing();
+                    if (!discard) return;
+                  }
+                  useAppStore.getState().cancelDrawMode();
+                }}
               >
                 Отмена
               </button>

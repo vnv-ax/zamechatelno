@@ -5,7 +5,8 @@ import { memo } from 'react';
 import { LayoutGrid } from 'lucide-react';
 import { useAppStore } from '@/lib/klaster/store';
 import { measuredSizes } from '@/lib/klaster/types';
-import { notePalette } from '@/lib/klaster/theme';
+import { useNotePalette } from '@/lib/klaster/useNotePalette';
+import type { NotePalette } from '@/lib/klaster/theme';
 import type { Card } from '@/lib/klaster/types';
 
 interface ThumbRect {
@@ -17,7 +18,7 @@ interface ThumbRect {
   src?: string;
 }
 
-function fillFor(card: Card, palette: ReturnType<typeof notePalette>): string {
+function fillFor(card: Card, palette: NotePalette): string {
   switch (card.type) {
     case 'note':
       return card.data.kind === 'note' ? palette[card.data.color]?.bg ?? palette.yellow.bg : palette.yellow.bg;
@@ -56,6 +57,7 @@ export const BoardThumb = memo(function BoardThumb({
   const board = useAppStore((s) => s.boards[boardId]);
   const theme = useAppStore((s) => s.theme);
   const tick = useAppStore((s) => s.layoutTick);
+  const palette = useNotePalette();
 
   if (!board) {
     return (
@@ -73,7 +75,6 @@ export const BoardThumb = memo(function BoardThumb({
     if (c.data.kind === 'column') for (const cid of c.data.cardIds) childIds.add(cid);
   }
 
-  const palette = notePalette(theme);
 
   const rects: ThumbRect[] = [];
   for (const c of board.cards) {

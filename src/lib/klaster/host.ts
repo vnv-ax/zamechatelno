@@ -37,7 +37,7 @@ function ensureListener(): void {
   });
 }
 
-export function hostCall(op: 'load' | 'save' | 'export', payload?: string): Promise<string> {
+export function hostCall(op: 'load' | 'save' | 'export' | 'close', payload?: string): Promise<string> {
   const wv = getWebView();
   if (!wv) return Promise.reject(new Error('Обёртка недоступна'));
   ensureListener();

@@ -2,87 +2,239 @@
 
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import {
-  Bookmark,
-  Box,
-  Building2,
-  ChevronLeft,
-  CircleUserRound,
-  FileDown,
-  MoreHorizontal,
-  Image as ImageIcon,
-  Info,
-  Layers,
-  Link2,
-  ListTodo,
-  PenLine,
-  Redo2,
-  Search,
-  Shapes,
-  SquarePen,
-  Text,
-  Undo2,
-} from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Funnel, Search } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Funnel, X } from 'lucide-react';
+import { useReducer } from 'react';
 import type { CardStatus } from '@/lib/klaster/types';
 import { useAppStore } from '@/lib/klaster/store';
 import type { CardType } from '@/lib/klaster/types';
-import { SettingsMenu } from './SettingsMenu';
-import { PlainBgButton } from './PlainBgButton';
+import { SettingsDialog } from './SettingsMenu';
 import { Hint } from './Hint';
 
+type RteEditor = {
+  isActive: (name: string | Record<string, unknown>) => boolean;
+  getAttributes: (name: string) => Record<string, unknown>;
+  chain: () => {
+    focus: () => {
+      run: () => void;
+      toggleBold: () => unknown;
+      toggleItalic: () => unknown;
+      toggleUnderline: () => unknown;
+      toggleBulletList: () => unknown;
+      toggleOrderedList: () => unknown;
+      setTextAlign: (a: 'left' | 'center' | 'right') => unknown;
+      setFontSize: (s: string) => unknown;
+      unsetFontSize: () => unknown;
+    };
+  };
+  on: (ev: string, cb: () => void) => void;
+  off: (ev: string, cb: () => void) => void;
+};
 
-const TOOLS: { type: CardType; label: string; desc?: string; icon: React.ReactNode }[] = [
-  { type: 'note', label: 'Стикер', icon: <SquarePen size={16} strokeWidth={1.8} /> },
-  { type: 'text', label: 'Заметка', icon: <Text size={16} strokeWidth={1.8} /> },
-  { type: 'todo', label: 'Список', icon: <ListTodo size={16} strokeWidth={1.8} /> },
-  { type: 'image', label: 'Изображение', icon: <ImageIcon size={16} strokeWidth={1.8} /> },
-  { type: 'link', label: 'Ссылка', icon: <Link2 size={16} strokeWidth={1.8} /> },
-  { type: 'catalog', label: 'Каталог', icon: <Bookmark size={16} strokeWidth={1.8} /> },
-  { type: 'subject', label: 'Субъект', icon: <CircleUserRound size={16} strokeWidth={1.8} /> },
-  { type: 'organization', label: 'Организация', icon: <Building2 size={16} strokeWidth={1.8} /> },
-  { type: 'object', label: 'Объект', icon: <Box size={16} strokeWidth={1.8} /> },
-  { type: 'board', label: 'Вложенный лист', icon: <Layers size={16} strokeWidth={1.8} /> },
-  { type: 'shape', label: 'Фигура', icon: <Shapes size={16} strokeWidth={1.8} /> },
-  { type: 'draw', label: 'Рисование', icon: <PenLine size={16} strokeWidth={1.8} /> },
-];
+const FONT_STEPS = [11, 12, 14, 16, 18, 22, 26, 32];
 
-function BoardTitleInput({
-  boardId,
-  initial,
-  onDone,
-}: {
-  boardId: string;
-  initial: string;
-  onDone: () => void;
-}) {
-  const [value, setValue] = useState(initial);
-  const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => ref.current?.select(), []);
+/** Панель форматирования текста в верхнем баре — появляется при правке заметки/текста */
+function RteToolbar({ editor }: { editor: RteEditor }) {
+  const [, force] = useReducer((x: number) => x + 1, 0);
+  useEffect(() => {
+    const h = () => force();
+    editor.on('transaction', h);
+    return () => editor.off('transaction', h);
+  });
 
-  const commit = () => {
-    useAppStore.getState().renameBoard(boardId, value.trim() || 'Без названия');
-    useAppStore.getState().openContextMenu(null);
-    onDone();
+  const btn = (active: boolean, label: React.ReactNode, title: string, run: () => void) => (
+    <button
+      key={title}
+      aria-label={title}
+      title={title}
+      data-nodrag
+      className={
+        'flex h-8 min-w-8 items-center justify-center rounded-lg px-1.5 text-[13px] transition-colors ' +
+        (active ? 'bg-[var(--accent-soft)] font-semibold text-[var(--accent-strong)]' : 'text-[var(--text-secondary)] hover:bg-[var(--hover-bg)]')
+      }
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => {
+        run();
+        editor.chain().focus().run();
+      }}
+    >
+      {label}
+    </button>
+  );
+
+  const curSize = parseInt(String(editor.getAttributes('textStyle').fontSize ?? '')) || 14;
+  const stepSize = (dir: -1 | 1) => {
+    const idx = FONT_STEPS.findIndex((v) => v >= curSize);
+    const next = FONT_STEPS[Math.max(0, Math.min(FONT_STEPS.length - 1, (idx === -1 ? 2 : idx) + dir))];
+    if (next === curSize && dir === -1 && idx <= 0) return editor.chain().focus().unsetFontSize().run();
+    editor.chain().focus().setFontSize(`${next}px`).run();
   };
 
   return (
-    <input
-      autoFocus
-      className="h-7 rounded border border-[var(--accent)] px-2 text-[13.5px] font-medium outline-none"
-      style={{ color: 'var(--text-main)', width: Math.max(120, value.length * 9 + 30), background: 'var(--panel-bg)' }}
-      value={value}
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        e.stopPropagation();
-        if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur();
-      }}
-    />
+    <div className="rte-topbar flex items-center gap-0.5">
+      {btn(false, <span title="">−</span>, 'Меньше текст', () => stepSize(-1))}
+      {btn(false, <span title="">+</span>, 'Больше текст', () => stepSize(1))}
+      <span className="mx-1 h-5 w-px shrink-0 bg-[var(--panel-border)]" />
+      {btn(editor.isActive('bold'), <b>Ж</b>, 'Жирный (Ctrl+B)', () => editor.chain().focus().toggleBold().run())}
+      {btn(editor.isActive('italic'), <i>К</i>, 'Курсив (Ctrl+I)', () => editor.chain().focus().toggleItalic().run())}
+      {btn(editor.isActive('underline'), <u>Ч</u>, 'Подчёркнутый (Ctrl+U)', () => editor.chain().focus().toggleUnderline().run())}
+      <span className="mx-1 h-5 w-px shrink-0 bg-[var(--panel-border)]" />
+      {btn(editor.isActive({ textAlign: 'left' }), 'Л', 'По левому краю', () => editor.chain().focus().setTextAlign('left').run())}
+      {btn(editor.isActive({ textAlign: 'center' }), 'Ц', 'По центру', () => editor.chain().focus().setTextAlign('center').run())}
+      {btn(editor.isActive({ textAlign: 'right' }), 'П', 'По правому краю', () => editor.chain().focus().setTextAlign('right').run())}
+      <span className="mx-1 h-5 w-px shrink-0 bg-[var(--panel-border)]" />
+      {btn(editor.isActive('orderedList'), '1.', 'Нумерованный список', () => editor.chain().focus().toggleOrderedList().run())}
+      {btn(editor.isActive('bulletList'), '•', 'Список через точки', () => editor.chain().focus().toggleBulletList().run())}
+    </div>
   );
 }
+
+/** Инструменты создания карточек — в порядке из меню, с разделителями-знаками. */
+const TOOLS: { type: CardType; label: string; aria: string; sep: string }[] = [
+  { type: 'note', label: 'СТИКЕР,', aria: 'Стикер', sep: ',' },
+  { type: 'text', label: 'ТЕКСТ,', aria: 'Текст', sep: ',' },
+  { type: 'todo', label: 'СПИСОК,', aria: 'Список', sep: ',' },
+  { type: 'image', label: 'ИЗОБРАЖЕНИЕ,', aria: 'Изображение', sep: ',' },
+  { type: 'catalog', label: 'ССЫЛКИ,', aria: 'Каталог ссылок', sep: ',' },
+  { type: 'object', label: 'ОБЪЕКТ,', aria: 'Объект', sep: ',' },
+  { type: 'subject', label: 'СУБЪЕКТ,', aria: 'Субъект', sep: ',' },
+  { type: 'organization', label: 'ОРГАНИЗАЦИЯ;', aria: 'Организация', sep: ';' },
+  { type: 'draw', label: 'РИСОВАНИЕ;', aria: 'Рисование', sep: ';' },
+  { type: 'board', label: 'ЛИСТ.', aria: 'Вложенный лист', sep: '' },
+];
+
+/** Кнопка-инструмент: слово заглавными, при наведении ничего не меняется,
+ *  но под курсором моментально всплывает маленькая надпись «тащи». */
+function TachtsiWord({
+  label,
+  ariaLabel,
+  active,
+  onPointerDown,
+  onClick,
+}: {
+  label: string;
+  ariaLabel?: string;
+  active?: boolean;
+  onPointerDown?: (e: React.PointerEvent) => void;
+  onClick?: () => void;
+}) {
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  return (
+    <span
+      className="relative mr-[5px] inline-flex items-center"
+      style={{ cursor: 'default' }}
+      onPointerEnter={(e) => setPos({ x: e.clientX, y: e.clientY })}
+      onPointerMove={(e) => setPos({ x: e.clientX, y: e.clientY })}
+      onPointerLeave={() => setPos(null)}
+    >
+      <button
+        type="button"
+        aria-label={ariaLabel ?? label}
+        data-nodrag
+        className="word-btn select-none px-0.5 text-[12.5px] font-medium leading-none tracking-[0.06em]"
+        style={{
+          color: active ? 'var(--accent-strong)' : 'var(--text-secondary)',
+          cursor: 'default',
+          background: 'transparent',
+        }}
+        onPointerDown={onPointerDown}
+        onClick={onClick}
+      >
+        {label}
+      </button>
+      {pos ? (
+        <span
+          className="select-none"
+          style={{
+            position: 'fixed',
+            left: pos.x + 8,
+            top: pos.y - 20,
+            zIndex: 90,
+            pointerEvents: 'none',
+            fontSize: 10,
+            lineHeight: 1,
+            padding: '1px 2px 2px',
+            color: 'var(--text-muted)',
+            borderBottom: '1px dashed var(--text-muted)',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          тащи
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/** Слово-кнопка без «тащи» (для функций): тоже без реакции на наведение. */
+function WordButton({
+  label,
+  onClick,
+  disabled,
+  active,
+  ariaLabel,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  active?: boolean;
+  ariaLabel: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel}
+      disabled={disabled}
+      className="word-btn select-none px-0.5 text-[12.5px] font-medium leading-none tracking-[0.06em]"
+      style={{
+        color: disabled
+          ? 'var(--text-faint)'
+          : active
+            ? 'var(--accent-strong)'
+            : 'var(--text-secondary)',
+        cursor: disabled ? 'default' : 'pointer',
+        background: 'transparent',
+      }}
+      onClick={onClick}
+    >
+      {label}
+    </button>
+  );
+}
+
+function IconWordButton({
+  children,
+  onClick,
+  disabled,
+  active,
+  ariaLabel,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  active?: boolean;
+  ariaLabel: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel}
+      disabled={disabled}
+      className="flex h-8 w-8 items-center justify-center"
+      style={{
+        color: disabled ? 'var(--text-faint)' : active ? 'var(--accent-strong)' : 'var(--text-secondary)',
+        cursor: disabled ? 'default' : 'pointer',
+        background: 'transparent',
+      }}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+const SEP = 'inline-block select-none px-[3px] text-[12px] leading-none text-[var(--text-faint)]';
 
 function AddressMenu() {
   const breadcrumb = useAppStore((s) => s.breadcrumb);
@@ -95,7 +247,11 @@ function AddressMenu() {
       <Hint label="Адрес листа" desc="путь по вложенным листам" side="bottom">
         <PopoverTrigger asChild>
           <button className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--hover-bg)]" aria-label="Адрес листа">
-            <MoreHorizontal size={16} />
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <circle cx="3" cy="8" r="1.4" />
+              <circle cx="8" cy="8" r="1.4" />
+              <circle cx="13" cy="8" r="1.4" />
+            </svg>
           </button>
         </PopoverTrigger>
       </Hint>
@@ -111,35 +267,34 @@ function AddressMenu() {
             setOpen(false);
           }}
         >
-          <MoreHorizontal size={13} className="shrink-0" />
           Главная страница
         </button>
         {breadcrumb.map((bid, i) => {
           const isCurrent = i === breadcrumb.length - 1;
           const title = boards[bid]?.title || 'Без названия';
-            return (
-              <Hint key={bid} label={title} side="right">
-                <button
-                  className={
-                    'flex w-full items-center gap-2 rounded-md py-1.5 pr-2.5 text-left text-[13px] ' +
-                    (isCurrent ? '' : 'hover:bg-[var(--hover-bg)]')
-                  }
-                  style={{
-                    paddingLeft: 10 + i * 14,
-                    color: isCurrent ? 'var(--text-main)' : 'var(--text-secondary)',
-                    fontWeight: isCurrent ? 600 : 400,
-                    background: isCurrent ? 'var(--accent-soft)' : undefined,
-                  }}
-                  onClick={() => {
-                    if (!isCurrent) st.navigateTo(i);
-                    setOpen(false);
-                  }}
-                >
-                  <span className="h-[6px] w-[6px] shrink-0 rounded-full" style={{ background: isCurrent ? 'var(--accent)' : 'var(--text-faint)' }} />
-                  <span className="min-w-0 flex-1 truncate">{title}</span>
-                </button>
-              </Hint>
-            );
+          return (
+            <Hint key={bid} label={title} side="right">
+              <button
+                className={
+                  'flex w-full items-center gap-2 rounded-md py-1.5 pr-2.5 text-left text-[13px] ' +
+                  (isCurrent ? '' : 'hover:bg-[var(--hover-bg)]')
+                }
+                style={{
+                  paddingLeft: 10 + i * 14,
+                  color: isCurrent ? 'var(--text-main)' : 'var(--text-secondary)',
+                  fontWeight: isCurrent ? 600 : 400,
+                  background: isCurrent ? 'var(--accent-soft)' : undefined,
+                }}
+                onClick={() => {
+                  if (!isCurrent) st.navigateTo(i);
+                  setOpen(false);
+                }}
+              >
+                <span className="h-[6px] w-[6px] shrink-0 rounded-full" style={{ background: isCurrent ? 'var(--accent)' : 'var(--text-faint)' }} />
+                <span className="min-w-0 flex-1 truncate">{title}</span>
+              </button>
+            </Hint>
+          );
         })}
         {breadcrumb.length > 1 ? (
           <div className="px-2.5 pb-1 pt-1 text-[10.5px] leading-snug text-[var(--text-faint)]">
@@ -151,10 +306,7 @@ function AddressMenu() {
   );
 }
 
-const iconBtn =
-  'flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--hover-bg)]';
-
-function StatusFilterMenu() {
+function StatusFilterMenu({ textMode }: { textMode: boolean }) {
   const statusFilter = useAppStore((s) => s.statusFilter);
   const tagFilter = useAppStore((s) => s.tagFilter);
   const setStatusFilter = useAppStore((s) => s.setStatusFilter);
@@ -169,16 +321,29 @@ function StatusFilterMenu() {
   ];
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <Hint label="Фильтр по состояниям и тегам" side="bottom">
-        <PopoverTrigger asChild>
+      <PopoverTrigger asChild>
+        {textMode ? (
           <button
-            className={iconBtn + (active ? ' text-[var(--accent)]' : '')}
+            aria-label="Фильтр"
+            className="word-btn select-none px-0.5 text-[12.5px] font-medium leading-none tracking-[0.06em]"
+            style={{
+              color: active ? 'var(--accent-strong)' : 'var(--text-secondary)',
+              cursor: 'pointer',
+              background: 'transparent',
+            }}
+          >
+            ФИЛЬТР
+          </button>
+        ) : (
+          <button
+            className="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--text-secondary)]"
+            style={{ cursor: 'pointer', background: 'transparent' }}
             aria-label="Фильтр"
           >
-            <Funnel size={16} />
+            <Funnel size={15} />
           </button>
-        </PopoverTrigger>
-      </Hint>
+        )}
+      </PopoverTrigger>
       <PopoverContent align="end" className="w-[240px] p-3">
         <div className="mb-1 text-[10.5px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
           Состояние
@@ -233,7 +398,9 @@ function StatusFilterMenu() {
                 setTagDraft('');
               }}
             >
-              <X size={13} />
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
             </button>
           ) : null}
         </div>
@@ -267,7 +434,10 @@ export function InfoMenu() {
           aria-label="Информация о приложении"
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--hover-bg)]"
         >
-          <Info size={16} />
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 16v-4M12 8h.01" />
+          </svg>
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-[300px] p-0">
@@ -290,73 +460,195 @@ export function InfoMenu() {
   );
 }
 
+/** «И:» — сворачивает ПОИСК, ФИЛЬТР, ОФОРМЛЕНИЕ и ЭКСПОРТ в горизонтальное меню. */
+function ExtrasMenu({ onSearch, onExport, onSettings }: { onSearch: () => void; onExport: () => void; onSettings: () => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="inline-flex items-center">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            aria-label="И: поиск, фильтр, оформление, экспорт"
+            className="word-btn select-none px-0.5 text-[12.5px] font-medium leading-none tracking-[0.06em]"
+            style={{ color: 'var(--text-secondary)', cursor: 'pointer', background: 'transparent', fontFamily: 'inherit' }}
+          >
+            И:
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-auto p-1.5" side="bottom">
+          <div className="flex items-center whitespace-nowrap">
+            <button
+              className="word-btn select-none px-0.5 text-[12.5px] font-medium leading-none tracking-[0.06em]"
+              style={{ color: 'var(--text-secondary)', cursor: 'pointer', background: 'transparent' }}
+              onClick={() => {
+                setOpen(false);
+                onSearch();
+              }}
+            >
+              ПОИСК
+            </button>
+            <span className={SEP}>, </span>
+            <StatusFilterMenu textMode />
+            <span className={SEP}> | </span>
+            <button
+              className="word-btn select-none px-0.5 text-[12.5px] font-medium leading-none tracking-[0.06em]"
+              style={{ color: 'var(--text-secondary)', cursor: 'pointer', background: 'transparent' }}
+              onClick={() => {
+                setOpen(false);
+                onSettings();
+              }}
+            >
+              ОФОРМЛЕНИЕ.
+            </button>
+            <span className={SEP}> | </span>
+            <button
+              className="word-btn select-none px-0.5 text-[12.5px] font-medium leading-none tracking-[0.06em]"
+              style={{ color: 'var(--text-secondary)', cursor: 'pointer', background: 'transparent' }}
+              onClick={() => {
+                setOpen(false);
+                onExport();
+              }}
+            >
+              ЭКСПОРТ.
+            </button>
+          </div>
+        </PopoverContent>
+      </Popover>
+    </span>
+  );
+}
+
 export function Topbar({ boardId }: { boardId: string }) {
   const breadcrumb = useAppStore((s) => s.breadcrumb);
-  const boards = useAppStore((s) => s.boards);
   const pastLen = useAppStore((s) => s.past.length);
   const futureLen = useAppStore((s) => s.future.length);
   const dragNewType = useAppStore((s) => s.dragNewType);
   const drawMode = useAppStore((s) => s.drawMode);
-  const [titleEditing, setTitleEditing] = useState(false);
+  const searchOpen = false;
+  void searchOpen;
 
-  const board = boards[boardId];
+  // Постепенная деградация текстового меню:
+  // 1 — ОТМЕНА/ПОВТОР стрелочками, 2 — ПОИСК/ФИЛЬТР значками, 3 — ОФОРМЛЕНИЕ/ЭКСПОРТ значками.
+  const [level, setLevel] = useState(0);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const headerRef = useRef<HTMLElement | null>(null);
+  const growTimer = useRef<number | null>(null);
+  const lastWidth = useRef<number>(0);
+
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    if (!header) return;
+    // не влезло — деградируем на уровень дальше (до предела)
+    if (header.scrollWidth > header.clientWidth + 1) {
+      setLevel(1);
+    }
+  });
+
+  useEffect(() => {
+    const header = headerRef.current;
+    if (!header || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0;
+      // окно стало шире — пробуем вернуть уровень текста назад
+      if (w > lastWidth.current + 40) {
+        if (growTimer.current) window.clearTimeout(growTimer.current);
+        growTimer.current = window.setTimeout(() => setLevel((l) => Math.max(0, l - 1)), 150);
+      }
+      lastWidth.current = w;
+    });
+    ro.observe(header);
+    return () => ro.disconnect();
+  }, []);
+
+  // Панель форматирования вместо меню, когда правится текст карточки
+  const rteEditor = useAppStore((s) => s.rteEditor) as RteEditor | null;
+  const editingId = useAppStore((s) => s.editingId);
+  const rteActive = !!rteEditor && !!editingId;
+  const theme = useAppStore((s) => s.theme);
+  const glassStyle =
+    theme === 'apple' || theme === 'apple-night'
+      ? { backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)' }
+      : undefined;
+
   const st = useAppStore.getState();
 
-
-  const title = board?.title || 'Без названия';
-
   return (
-    <header className="topbar z-40 flex h-12 shrink-0 items-center gap-1 overflow-hidden border-b border-[var(--chrome-border, var(--panel-border))] px-2">
-      <Hint label={breadcrumb.length > 1 ? 'На уровень выше' : 'На главную'} side="bottom">
-        <button
-          className={iconBtn}
-          aria-label={breadcrumb.length > 1 ? 'На уровень выше' : 'На главную'}
-          onClick={() => {
-            if (breadcrumb.length > 1) st.navigateTo(breadcrumb.length - 2);
-            else st.setView('home');
-          }}
-        >
-          <ChevronLeft size={17} />
-        </button>
-      </Hint>
-
-      {}
-      <AddressMenu />
-
-      {}
-      {titleEditing ? (
-        <BoardTitleInput boardId={boardId} initial={title} onDone={() => setTitleEditing(false)} />
+    <header
+      ref={headerRef}
+      className="topbar z-40 flex h-12 shrink-0 items-center gap-0 overflow-hidden border-b border-[var(--chrome-border, var(--panel-border))] px-2"
+      style={{ fontFamily: "var(--font-plex), system-ui, sans-serif", ...glassStyle }}
+    >
+      {rteActive && rteEditor ? (
+        <RteToolbar editor={rteEditor} />
       ) : (
-        <Hint label="Название листа" desc={title + ' · двойной клик — переименовать'} side="bottom">
+        <>
           <button
-            className="min-w-[48px] max-w-[240px] shrink truncate rounded px-1.5 py-1 text-left text-[13.5px] font-medium"
-            style={{ color: 'var(--text-main)' }}
-            aria-label="Название листа"
-            onDoubleClick={() => setTitleEditing(true)}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--hover-bg)]"
+            aria-label={breadcrumb.length > 1 ? 'На уровень выше' : 'На главную'}
+            onClick={() => {
+              if (breadcrumb.length > 1) st.navigateTo(breadcrumb.length - 2);
+              else st.setView('home');
+            }}
           >
-            {title}
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="m15 18-6-6 6-6" />
+            </svg>
           </button>
-        </Hint>
-      )}
+          <AddressMenu />
 
-      <div className="mx-1 h-5 w-px shrink-0 bg-[var(--panel-border)]" />
+          <span className="mx-1.5 h-5 w-px shrink-0 bg-[var(--panel-border)]" />
 
-      {}
-      <div className="flex shrink-0 items-center gap-0.5">
-        {TOOLS.map((t) => {
-          const isActive = t.type === 'draw' ? drawMode : dragNewType === t.type;
-          const label = t.type === 'draw' && drawMode ? 'Завершить рисунок' : t.label;
-          const description = t.type === 'draw' && drawMode
-            ? 'Сохранить все штрихи одним объектом'
-            : t.desc;
-          return (
-            <Hint key={t.type} label={label} desc={description} side="bottom">
-              <button
-                aria-label={label}
-                className={
-                  'flex h-8 w-8 items-center justify-center rounded-lg transition-colors ' +
-                  (isActive ? 'bg-[var(--accent-soft)] text-[var(--accent-strong)]' : 'text-[var(--text-secondary)] hover:bg-[var(--hover-bg)]')
-                }
+          {level === 0 && TOOLS.filter((t) => t.type === 'draw').map((t) => {
+            const isActive = drawMode;
+            return (
+              <TachtsiWord
+                key={t.type}
+                label={t.label}
+                ariaLabel={t.aria}
+                active={isActive}
+                onClick={() => {
+                  const store = useAppStore.getState();
+                  store.setDragNewType(null);
+                  store.setDrawMode(!store.drawMode);
+                }}
+              />
+            );
+          })}
+
+          {level === 1 ? (
+            <>
+              <span className={SEP}> | </span>
+              <TachtsiWord
+                label="РИСОВАНИЕ."
+                ariaLabel="Рисование"
+                active={drawMode}
+                onClick={() => {
+                  const store = useAppStore.getState();
+                  store.setDragNewType(null);
+                  store.setDrawMode(!store.drawMode);
+                }}
+              />
+              <span className={SEP}> | </span>
+              <WordButton label="<-" ariaLabel="Отменить" disabled={!pastLen} onClick={() => st.undo()} />
+              <span className="inline-block w-[6px]" />
+              <WordButton label="->" ariaLabel="Повторить" disabled={!futureLen} onClick={() => st.redo()} />
+              <span className={SEP}> | </span>
+              <ExtrasMenu
+                onSearch={() => st.setSearchOpen(true)}
+                onExport={() => st.setExportOpen(true)}
+                onSettings={() => setSettingsOpen(true)}
+              />
+            </>
+          ) : null}
+
+          {TOOLS.filter((t) => level === 0 || t.type !== 'draw').map((t) => {
+            const isActive = t.type === 'draw' ? drawMode : dragNewType === t.type;
+            return (
+              <TachtsiWord
+                key={t.type}
+                label={t.label}
+                ariaLabel={t.aria}
+                active={isActive}
                 onPointerDown={(e) => {
                   if (t.type === 'draw') return;
                   e.preventDefault();
@@ -368,53 +660,51 @@ export function Topbar({ boardId }: { boardId: string }) {
                   store.setDragNewType(null);
                   store.setDrawMode(!store.drawMode);
                 }}
-              >
-                {t.icon}
-              </button>
-            </Hint>
-          );
-        })}
-      </div>
+              />
+            );
+          })}
+
+          {level === 0 ? (
+            <span className="inline-flex items-center">
+              <span className={SEP}> | </span>
+              <WordButton
+                label="ОТМЕНА"
+                ariaLabel="Отменить"
+                disabled={!pastLen}
+                onClick={() => st.undo()}
+              />
+              <span className={SEP}>; </span>
+              <WordButton
+                label="ПОВТОР"
+                ariaLabel="Повторить"
+                disabled={!futureLen}
+                onClick={() => st.redo()}
+              />
+            </span>
+          ) : null}
+
+          {level === 0 ? (
+            <>
+              <WordButton label="ПОИСК" ariaLabel="Поиск" onClick={() => st.setSearchOpen(true)} />
+              <span className={SEP}>, </span>
+              <StatusFilterMenu textMode />
+              <span className={SEP}> | </span>
+              <WordButton label="ОФОРМЛЕНИЕ." ariaLabel="Оформление" onClick={() => setSettingsOpen(true)} />
+              <span className={SEP}> | </span>
+              <WordButton label="ЭКСПОРТ." ariaLabel="Выгрузить лист в JSON" onClick={() => st.setExportOpen(true)} />
+            </>
+          ) : (
+            <ExtrasMenu
+              onSearch={() => st.setSearchOpen(true)}
+              onExport={() => st.setExportOpen(true)}
+              onSettings={() => setSettingsOpen(true)}
+            />
+          )}
+        </>
+      )}
 
       <div className="flex-1" />
-
-      <Hint label="Отменить" desc="Ctrl+Z" side="bottom">
-        <button
-          className={iconBtn}
-          aria-label="Отменить"
-          disabled={!pastLen}
-          onClick={() => st.undo()}
-        >
-          <Undo2 size={16} />
-        </button>
-      </Hint>
-      <Hint label="Повторить" desc="Ctrl+Shift+Z" side="bottom">
-        <button
-          className={iconBtn}
-          aria-label="Повторить"
-          disabled={!futureLen}
-          onClick={() => st.redo()}
-        >
-          <Redo2 size={16} />
-        </button>
-      </Hint>
-      <div className="mx-1 h-5 w-px shrink-0 bg-[var(--panel-border)]" />
-      <Hint label="Поиск" desc="Ctrl+K" side="bottom">
-        <button className={iconBtn} aria-label="Поиск" onClick={() => st.setSearchOpen(true)}>
-          <Search size={16} />
-        </button>
-      </Hint>
-      <StatusFilterMenu />
-      <PlainBgButton />
-      <SettingsMenu />
-      <button
-        className="flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-[var(--panel-border)] px-2.5 text-[12.5px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--hover-bg)] hover:text-[var(--text-main)]"
-        aria-label="Выгрузить лист в JSON"
-        onClick={() => st.setExportOpen(true)}
-      >
-        <FileDown size={14} />
-        Выгрузить
-      </button>
+      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </header>
   );
 }

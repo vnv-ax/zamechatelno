@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useAppStore, buildBreadcrumbPath } from '@/lib/klaster/store';
+import { focusCard } from './Canvas';
 import { CATALOG_CATEGORIES } from '@/lib/klaster/types';
 import { exportBoards } from '@/lib/klaster/download';
 import { useToast } from '@/hooks/use-toast';
@@ -99,7 +100,10 @@ function SearchDialogInner() {
     const path = buildBreadcrumbPath(st.boards, boardId);
     st.openBoardRoot(path[0]);
     for (let i = 1; i < path.length; i++) st.openSubBoard(path[i]);
-    if (cardId) st.setSelection([cardId]);
+    if (cardId) {
+      // центрируем вид на найденной карточке и подсвечиваем её
+      setTimeout(() => focusCard(boardId, cardId), 60);
+    }
     st.setSearchOpen(false);
   };
 
@@ -168,35 +172,49 @@ function SearchDialogInner() {
 }
 
 const SHORTCUTS: [string, string][] = [
+  ['Слово-инструмент в нижнем баре', 'Потяните слово на холст — карточка появится там, где отпустите'],
+  ['«ТЯНИ»', 'Подсказка под курсором: это слово можно тащить. При тяге вместо неё — иконка того, что тащится'],
+  ['РИСОВАНИЕ.', 'Клик — включить/выключить рисование. Esc — выключить'],
+  ['...', 'Адрес листа: путь по вложенным листам, клик — переход'],
+  ['ВЕРНУТЬ, ПОВТОРИТЬ?', 'Ctrl+Z / Ctrl+Shift+Z'],
+  ['ВИД;', 'Оформление: шрифт, кегль, тема, сборка «Простенькой»'],
+  ['ФИЛЬТР, ПОИСК;', 'Фильтр по состояниям и тегам (#цитаты/вложенные), поиск Ctrl+K'],
+  ['- 100% +, ЦЕНТР.', 'Масштаб: дальше / 100% / ближе / вписать лист (клавиши 0, F, +, −, Ctrl+колесо)'],
+  ['ЭКСПОРТ.', 'Скачать лист и все вложенные листы в JSON (на главной — все листы разом, импорт там же)'],
+  ['КАК?', 'Эта справка'],
   ['Двойной клик по заметке или тексту', 'Редактировать'],
-  ['Перетащить инструмент с верхней панели на холст', 'Создать карточку'],
-  ['Карандаш на верхней панели', 'Перетащите на холст — включится рисование, Esc — выключить'],
   ['Перетащить карточку на карточку', 'Создать колонку'],
-  ['Точка сбоку карточки', 'Потянитесь к другой карточке — стрелка'],
+  ['Точка сбоку карточки', 'Потяните к другой карточке — стрелка-связь'],
   ['Двойной клик по карточке-листу', 'Открыть вложенный лист'],
-  ['Пробел + перетаскивание / средняя кнопка', 'Панорама'],
+  ['Пробел + перетаскивание / средняя кнопка / двойной клик по холсту + удержание', 'Панорама'],
   ['W A S D', 'Панорама листа (во время ввода текста не работает)'],
-  ['Двойной клик по холсту + удержание', 'Панорама листа'],
-  ['Ctrl + колесо мыши', 'Масштаб'],
   ['Рамка на пустом месте', 'Выделить несколько карточек'],
-  ['Ctrl + Z / Ctrl + Shift + Z', 'Отменить / повторить'],
   ['Ctrl + C / X / V', 'Копировать / вырезать / вставить'],
   ['Ctrl + D', 'Дублировать'],
+  ['Alt + W/A/S/D', 'Выровнять выделение: к верху/леву/низу/праву'],
+  ['Alt + H/V', 'Выровнять выделение: по центрам (гориз./верт.)'],
   ['Ctrl + A', 'Выделить всё'],
   ['Delete / Backspace', 'Удалить выбранное'],
   ['Стрелки', 'Сдвинуть выделенное (Shift — быстрее)'],
-  ['0 / F / + / −', 'Масштаб 100% / по размеру листа / ближе / дальше'],
-  ['Ctrl + K', 'Поиск'],
+  ['Alt+F4 в правом верхнем углу', 'Почти невидимая надпись: наведите — проявится, нажмите — приложение закроется'],
+];
+
+const TIPS: string[] = [
+  'Наведение и нажатие ничего не меняют в словах бара — они не кнопки-таблетки, а слова: читайте и тащите.',
+  'Все данные хранятся локально: в браузере — в этом браузере, в обёртке — в шифрованном хранилище рядом с программой.',
+  'Сборка «Простенькой»: включите тему и соберите свою — фон из одной темы, плашки из другой, акцент из третьей.',
+  'Каждая тема — свой характер: свои узор фона, стрелки, анимации переходов и отклик кнопок.',
 ];
 
 export function ShortcutsDialog() {
+
   const open = useAppStore((s) => s.shortcutsOpen);
   return (
     <Dialog open={open} onOpenChange={(v) => useAppStore.getState().setShortcutsOpen(v)}>
       <DialogContent className="max-w-[560px]">
         <DialogHeader>
-          <DialogTitle>Горячие клавиши и приёмы</DialogTitle>
-          <DialogDescription>Всё, что ускоряет работу с листами.</DialogDescription>
+          <DialogTitle>КАК?</DialogTitle>
+          <DialogDescription>Справка: слова бара, горячие клавиши и приёмы.</DialogDescription>
         </DialogHeader>
         <div className="max-h-[420px] overflow-y-auto pr-1">
           {SHORTCUTS.map(([k, v]) => (
@@ -205,6 +223,12 @@ export function ShortcutsDialog() {
               <span className="shrink-0 rounded border border-[var(--panel-border)] bg-[var(--chip-bg)] px-2 py-0.5 text-[12px] text-[var(--text-secondary)]">
                 {k}
               </span>
+            </div>
+          ))}
+          <div className="pb-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">Советы</div>
+          {TIPS.map((t) => (
+            <div key={t} className="py-1.5 text-[12.5px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+              {t}
             </div>
           ))}
         </div>

@@ -130,12 +130,12 @@ export default function RootLayout({
     <html
       lang="ru"
       suppressHydrationWarning
-      data-theme="vanilla"
+      data-theme="academic"
       data-font="jbmono"
-      style={{ backgroundColor: "#D6BFA3" }}
+      style={{ backgroundColor: "#191B1E" }}
       className={`${golos.variable} ${inter.variable} ${jbmono.variable} ${plex.variable} ${piazzolla.variable} ${spectral.variable} ${literata.variable} ${pattaya.variable} ${vibes.variable} ${caveat.variable} ${shantell.variable}`}
     >
-      <body className="antialiased bg-background text-foreground" style={{ backgroundColor: "#D6BFA3" }}>
+      <body className="antialiased bg-background text-foreground" style={{ backgroundColor: "#191B1E" }}>
         {
 
 }

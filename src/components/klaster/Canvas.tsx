@@ -19,6 +19,92 @@ function clamp(v: number, min: number, max: number) {
 
 let vpPersistTimer: ReturnType<typeof setTimeout> | null = null;
 
+/** Сколько штрихов сейчас в черновике рисунка (для вопроса «Удалить рисунок?» при Escape) */
+export const drawingDraft = { count: 0 };
+
+/** Диалог «Удалить рисунок?» — true, если пользователь подтвердил удаление черновика */
+export function confirmDiscardDrawing(): Promise<boolean> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (ok: boolean) => {
+      if (done) return;
+      done = true;
+      window.removeEventListener('keydown', onKey, true);
+      overlay.remove();
+      resolve(ok);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        finish(true);
+      } else if (e.key === 'Escape') {
+        finish(false);
+      }
+    };
+
+    const overlay = document.createElement('div');
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      inset: '0',
+      zIndex: '9999',
+      background: 'rgba(0,0,0,0.45)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+    } as Partial<CSSStyleDeclaration>);
+    overlay.addEventListener('pointerdown', (e) => {
+      if (e.target === overlay) finish(false);
+    });
+
+    const box = document.createElement('div');
+    Object.assign(box.style, {
+      maxWidth: '360px',
+      margin: '0 16px',
+      padding: '16px 18px',
+      background: 'var(--card-bg)',
+      color: 'var(--text-main)',
+      border: '1px solid var(--card-border)',
+      borderRadius: '12px',
+      boxShadow: '0 18px 48px rgba(0,0,0,0.4)',
+    } as Partial<CSSStyleDeclaration>);
+
+    const title = document.createElement('div');
+    title.textContent = 'Удалить рисунок?';
+    Object.assign(title.style, { fontSize: '14.5px', fontWeight: '600' } as Partial<CSSStyleDeclaration>);
+
+    const hint = document.createElement('div');
+    hint.textContent = 'Нарисованные штрихи будут потеряны.';
+    Object.assign(hint.style, { marginTop: '6px', fontSize: '12px', color: 'var(--text-secondary)' } as Partial<CSSStyleDeclaration>);
+
+    const row = document.createElement('div');
+    Object.assign(row.style, { display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px' } as Partial<CSSStyleDeclaration>);
+
+    const no = document.createElement('button');
+    no.textContent = 'Неа';
+    Object.assign(no.style, {
+      padding: '5px 14px', fontSize: '12.5px', borderRadius: '8px', cursor: 'pointer',
+      background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--card-border)',
+    } as Partial<CSSStyleDeclaration>);
+    no.addEventListener('click', () => finish(false));
+
+    const yes = document.createElement('button');
+    yes.textContent = 'Так точно';
+    Object.assign(yes.style, {
+      padding: '5px 14px', fontSize: '12.5px', fontWeight: '600', borderRadius: '8px', cursor: 'pointer',
+      background: 'var(--accent)', color: '#fff', border: '1px solid transparent',
+    } as Partial<CSSStyleDeclaration>);
+    yes.addEventListener('click', () => finish(true));
+
+    row.append(no, yes);
+    box.append(title, hint, row);
+    overlay.append(box);
+    document.body.append(overlay);
+    window.addEventListener('keydown', onKey, true);
+    setTimeout(() => yes.focus(), 0);
+  });
+}
+
 function scheduleVpPersist(boardId: string) {
   if (vpPersistTimer) clearTimeout(vpPersistTimer);
   vpPersistTimer = setTimeout(() => {
@@ -55,10 +141,17 @@ function commitDrawingSession(boardId: string, strokes: DrawStroke[]) {
   const pad = 8 + maxWidth;
   const x = minX - pad;
   const y = minY - pad;
-  const relativeStrokes = validStrokes.map((stroke) => ({
-    ...stroke,
-    points: stroke.points.map((value, i) => value - (i % 2 === 0 ? x : y)),
-  }));
+  const relativeStrokes = validStrokes.map((stroke) => {
+    const relativePoints = stroke.points.map((value, i) => value - (i % 2 === 0 ? x : y));
+    return {
+      ...stroke,
+      points: relativePoints,
+      // запекаем SVG-слои штриха уже в координатах карточки — иначе рисунок уедет
+      baked: JSON.stringify(
+        renderStroke(relativePoints, stroke.width, stroke.style ?? 'ink', stroke.pressures, true)
+      ),
+    };
+  });
   const first = relativeStrokes[0];
   const id = useAppStore.getState().addDrawObject(boardId, x, y, maxX - minX + pad * 2, maxY - minY + pad * 2, {
     kind: 'draw',
@@ -178,6 +271,7 @@ export function Canvas({ boardId }: { boardId: string }) {
       gestureCancel.current?.();
       if (!drawCancelled) commitDrawingSession(drawSessionBoardId.current, draftStrokesRef.current);
       draftStrokesRef.current = [];
+      drawingDraft.count = 0;
       draftLayerRef.current?.replaceChildren();
     }
     wasDrawMode.current = drawMode;
@@ -390,6 +484,41 @@ export function Canvas({ boardId }: { boardId: string }) {
     };
   }, []);
 
+  // Выравнивание выделенных карточек: Alt+W/A/S/D (к краям) и Alt+H/V (по центрам);
+  // Alt+Shift+H/V — равномерное распределение по горизонтали/вертикали
+  useEffect(() => {
+    const ALIGN_KEYS: Record<string, 'top' | 'left' | 'bottom' | 'right' | 'vcenter' | 'hcenter'> = {
+      KeyW: 'top',
+      KeyA: 'left',
+      KeyS: 'bottom',
+      KeyD: 'right',
+      KeyH: 'vcenter',
+      KeyV: 'hcenter',
+    };
+    const down = (e: KeyboardEvent) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey) return;
+      const st = useAppStore.getState();
+      if (st.view !== 'board' || st.drawMode || st.editingId || st.searchOpen) return;
+      const target = e.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.matches('input, textarea, select, [contenteditable="true"]') || target.isContentEditable)
+      ) return;
+      if (e.shiftKey) {
+        // распределение
+        if (e.code === 'KeyH') { e.preventDefault(); st.alignSelection('dist-h'); return; }
+        if (e.code === 'KeyV') { e.preventDefault(); st.alignSelection('dist-v'); return; }
+        return;
+      }
+      const side = ALIGN_KEYS[e.code];
+      if (!side) return;
+      e.preventDefault();
+      st.alignSelection(side);
+    };
+    window.addEventListener('keydown', down);
+    return () => window.removeEventListener('keydown', down);
+  }, []);
+
   const startPan = (e: React.PointerEvent) => {
     setPanning(true);
     const sx = e.clientX;
@@ -502,6 +631,7 @@ export function Canvas({ boardId }: { boardId: string }) {
     if (pts.length < 2) return;
     const stroke: DrawStroke = { ...tool, points: [...pts], pressures: [...pressures] };
     draftStrokesRef.current.push(stroke);
+    drawingDraft.count = draftStrokesRef.current.length;
     const rendered = renderStroke(stroke.points, stroke.width, stroke.style, stroke.pressures);
     const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     paintStrokeGroup(group, rendered, stroke.color ?? 'var(--text-main)');
@@ -525,10 +655,10 @@ export function Canvas({ boardId }: { boardId: string }) {
     const queuePreview = () => {
       if (!frame) frame = requestAnimationFrame(drawPreview);
     };
-    const drawPreview = () => {
+    const drawPreview = (final = false) => {
       frame = 0;
       if (!path) return;
-      const rendered = renderStroke(pts, tool.width, tool.style, pressures);
+      const rendered = renderStroke(pts, tool.width, tool.style, pressures, final);
       paintStrokeGroup(path, rendered, tool.color ?? 'var(--text-main)');
     };
     queuePreview();
@@ -566,7 +696,7 @@ export function Canvas({ boardId }: { boardId: string }) {
       finished = true;
       detach();
       if (frame) cancelAnimationFrame(frame);
-      drawPreview();
+      drawPreview(true);
       if (path) path.style.display = 'none';
       keepDraftStroke(pts, pressures, tool);
     };
@@ -735,7 +865,9 @@ export function Canvas({ boardId }: { boardId: string }) {
         backgroundColor: 'var(--canvas-bg)',
         backgroundImage:
           'radial-gradient(130% 115% at 50% 40%, var(--canvas-glow, transparent) 0%, transparent 55%),' +
-          'radial-gradient(150% 130% at 50% 55%, transparent 55%, var(--canvas-vignette, transparent) 100%)',
+          'radial-gradient(150% 130% at 50% 55%, transparent 55%, var(--canvas-vignette, transparent) 100%),' +
+          'var(--page-image, none)',
+        backgroundSize: 'auto, auto, var(--page-image-size, auto)',
       }}
       onPointerDown={onPointerDown}
       onContextMenu={onContextMenu}
