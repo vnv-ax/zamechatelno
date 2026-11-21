@@ -1,0 +1,6 @@
+1:"$Sreact.fragment"
+2:I[68246,["/_next/static/chunks/2c2c62189f3d220b.js","/_next/static/chunks/2a17337a40880504.js","/_next/static/chunks/2a366746235e6704.js","/_next/static/chunks/579fd60a4a2ea06e.js"],"default"]
+3:I[97367,["/_next/static/chunks/2f236954d6a65e12.js"],"OutletBoundary"]
+4:"$Sreact.suspense"
+0:{"buildId":"WcZg05LW1IYZi4SkBKEy5","rsc":["$","$1","c",{"children":[[["$","div",null,{"id":"boot-splash","className":"boot-splash","aria-hidden":"true","style":{"position":"fixed","inset":0,"zIndex":2147483647,"backgroundColor":"#191B1E","transition":"opacity 320ms ease"}}],["$","$L2",null,{}]],[["$","script","script-0",{"src":"/_next/static/chunks/2a366746235e6704.js","async":true}],["$","script","script-1",{"src":"/_next/static/chunks/579fd60a4a2ea06e.js","async":true}]],["$","$L3",null,{"children":["$","$4",null,{"name":"Next.MetadataOutlet","children":"$@5"}]}]]}],"loading":null,"isPartial":false}
+5:null
