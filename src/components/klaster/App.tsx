@@ -12,6 +12,7 @@ import { ExportDialog, SearchDialog, ShortcutsDialog } from './Dialogs';
 import { BottomInfoPanel } from './BottomInfoPanel';
 import { fitView, zoomTo, drawingDraft, confirmDiscardDrawing } from './Canvas';
 import { ThemeSplash } from './ThemeSplash';
+import { undoDrawingDraft } from './Canvas';
 import { AltF4Hint } from './AltF4Hint';
 
 
@@ -81,6 +82,12 @@ export default function App() {
       const ruKey: Record<string, string> = { 'с': 'c', 'ч': 'x', 'м': 'v', 'в': 'd', 'ф': 'a', 'я': 'z', 'л': 'k' };
       const key = ruKey[e.key.toLowerCase()] ?? e.key.toLowerCase();
 
+      // в режиме рисования КОНТРОЛЬ+Я отменяет штрихи черновика, а не лист
+      if (st.drawMode && mod && key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undoDrawingDraft();
+        return;
+      }
       if (mod && key === 'z') {
         e.preventDefault();
         if (e.shiftKey) st.redo();

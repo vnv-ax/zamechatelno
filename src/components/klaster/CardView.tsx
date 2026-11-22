@@ -2865,7 +2865,7 @@ function CardViewInner({ cardId, boardId }: CardViewProps) {
     const d = card.data as Extract<Card['data'], { kind: 'image' }>;
     inner = d.src ? (
       <div className="group/img relative h-full w-full overflow-hidden" style={{ background: 'var(--hover-bg)', borderRadius: 'var(--radius-card)' }}>
-        <img src={d.src} alt={d.alt || 'Изображение'} className="h-full w-full object-cover" draggable={false} decoding="async" />
+        <img src={d.src} alt={d.alt || 'Изображение'} loading="lazy" decoding="async" className="h-full w-full object-cover" draggable={false} />
         {hovered || selected ? (
           <div
             data-nodrag

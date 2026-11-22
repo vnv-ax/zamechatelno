@@ -152,7 +152,7 @@ export const BoardThumb = memo(function BoardThumb({
           }}
         >
           {r.src ? (
-            <img src={r.src} alt="" className="h-full w-full object-cover" draggable={false} />
+            <img src={r.src} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" draggable={false} />
           ) : null}
         </div>
       ))}

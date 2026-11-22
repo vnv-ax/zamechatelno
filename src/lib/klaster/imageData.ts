@@ -6,10 +6,10 @@
 // при каждом изменении. Поэтому перед сохранением уменьшаем сторону и
 // подбираем качество так, чтобы картинка укладывалась в бюджет по байтам.
 
-export const MAX_IMAGE_SIDE = 1280;
-export const MAX_IMAGE_SRC_BYTES = 220 * 1024;
-export const MAX_PHOTO_SIDE = 900;
-export const MAX_PHOTO_BYTES = 160 * 1024;
+export const MAX_IMAGE_SIDE = 1024;
+export const MAX_IMAGE_SRC_BYTES = 120 * 1024;
+export const MAX_PHOTO_SIDE = 760;
+export const MAX_PHOTO_BYTES = 100 * 1024;
 
 export interface OptimizeImageOptions {
   maxSide?: number;
@@ -93,7 +93,7 @@ export async function optimizeImageDataUrl(
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(img, 0, 0, w, h);
 
-    for (let quality = 0.9; quality >= 0.45; quality -= 0.1) {
+    for (let quality = 0.8; quality >= 0.4; quality -= 0.1) {
       let out: string;
       try {
         out = canvas.toDataURL(mime, quality);

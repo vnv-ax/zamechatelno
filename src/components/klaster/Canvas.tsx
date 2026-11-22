@@ -21,6 +21,13 @@ let vpPersistTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Сколько штрихов сейчас в черновике рисунка (для вопроса «Удалить рисунок?» при Escape) */
 export const drawingDraft = { count: 0 };
+// стек отмены штрихов черновика рисования (КОНТРОЛЬ+Я в режиме рисования)
+const draftUndoFns: (() => void)[] = [];
+
+/** Отменить последний штрих черновика (только в режиме рисования). */
+export function undoDrawingDraft() {
+  draftUndoFns.pop()?.();
+}
 
 /** Диалог «Удалить рисунок?» — true, если пользователь подтвердил удаление черновика */
 export function confirmDiscardDrawing(): Promise<boolean> {
@@ -109,7 +116,7 @@ function scheduleVpPersist(boardId: string) {
   if (vpPersistTimer) clearTimeout(vpPersistTimer);
   vpPersistTimer = setTimeout(() => {
     useAppStore.getState().setViewport(boardId, { ...canvasHandle.view });
-  }, 220);
+  }, 900);
 }
 
 function applyVp(v: Viewport) {
@@ -271,6 +278,7 @@ export function Canvas({ boardId }: { boardId: string }) {
       gestureCancel.current?.();
       if (!drawCancelled) commitDrawingSession(drawSessionBoardId.current, draftStrokesRef.current);
       draftStrokesRef.current = [];
+      draftUndoFns.length = 0;
       drawingDraft.count = 0;
       draftLayerRef.current?.replaceChildren();
     }
@@ -573,6 +581,10 @@ export function Canvas({ boardId }: { boardId: string }) {
   };
 
   const startMarquee = (e: React.PointerEvent) => {
+    // причина выделения текста блоков: браузер сам начинает нативную
+    // селекцию этим же жестом. Гасим её в корне и чистим уже начатую.
+    e.preventDefault();
+    window.getSelection()?.removeAllRanges();
     // клик по пустому месту: выделение падает моментально, ещё до рамки
     useAppStore.getState().clearSelection();
 
@@ -646,6 +658,11 @@ export function Canvas({ boardId }: { boardId: string }) {
     const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     paintStrokeGroup(group, rendered, stroke.color ?? 'var(--text-main)');
     draftLayerRef.current?.append(group);
+    draftUndoFns.push(() => {
+      group.remove();
+      draftStrokesRef.current.pop();
+      drawingDraft.count = draftStrokesRef.current.length;
+    });
   };
 
   const startStroke = (e: React.PointerEvent) => {
